@@ -79,35 +79,53 @@ Sub BuildSOD()
     'Content Control
     '====================
     Dim cc As Object
+    Dim tbl As Object
     
+
     For Each cc In wdDoc.ContentControls
-        Select Case cc.Title 'Finds the title for each CC
-        
-        Case "cc_title"
+
+        Select Case cc.Title
+            Case "cc_title"
             cc.Range.Text = ws.Cells(headerRow, colMap("SOD Title")).Value
-            
-        Case "cc_policy_statement"
-            cc.Range.Text = ws.Cells(headerRow, colMap("Policy Statement")).Value
-            
-        Case "cc_purpose"
-            cc.Range.Text = ws.Cells(headerRow, colMap("Purpose")).Value
-            
-        Case "cc_scope"
-            cc.Range.Text = ws.Cells(headerRow, colMap("Scope")).Value
-            
-        Case "cc_resource"
-            cc.Range.Text = ws.Cells(headerRow, colMap("SOD Resource")).Value
-            
-        Case "cc_version"
-            cc.Range.Text = ws.Cells(headerRow, colMap("SOD Version")).Value
-            
-        Case "cc_dictionary"
-            cc.Range.Text = ws.Cells(headerRow, colMap("Dictionary")).Value
-            
-        Case "cc_definition"
-            cc.Range.Text = ws.Cells(headerRow, colMap("Definition")).Value
-    
+                
+            Case "cc_policy_statement"
+                cc.Range.Text = ws.Cells(headerRow, colMap("Policy Statement")).Value
+                
+            Case "cc_purpose"
+                cc.Range.Text = ws.Cells(headerRow, colMap("Purpose")).Value
+                
+            Case "cc_scope"
+                cc.Range.Text = ws.Cells(headerRow, colMap("Scope")).Value
+                
+            Case "cc_resource"
+                cc.Range.Text = ws.Cells(headerRow, colMap("SOD Resource")).Value
+                
+            Case "cc_version"
+                cc.Range.Text = ws.Cells(headerRow, colMap("SOD Version")).Value
+                
+            Case "cc_definitions"
+                Set tbl = wdDoc.Tables.Add(cc.Range, 1, 2)
+
+                tbl.cell(1, 1).Range.Text = "Term"
+                tbl.cell(1, 2).Range.Text = "Definition"
+
+                For i = headerRow To lastRow
+
+                    If ws.Cells(i, colMap("Dictionary")).Value <> "" Then
+                        tbl.Rows.Add
+
+                        tbl.cell(tbl.Rows.Count, 1).Range.Text = _
+                        ws.Cells(i, colMap("Term")).Value
+
+                        tbl.cell(tbl.Rows.Count, 2).Range.Text = _
+                        ws.Cells(i, colMap("Definition")).Value
+
+                    End If
+
+                Next i
+
         End Select
+
     Next cc
 
 
