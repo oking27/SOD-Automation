@@ -9,6 +9,8 @@ Private Const DOCUMENT_SUBTITLE As String = _
 
 Public Sub GenerateSOD()
 
+    Dim Response As VbMsgBoxResult
+    
     Dim ws As Worksheet
     Dim tbl As ListObject
 
@@ -88,26 +90,28 @@ Public Sub GenerateSOD()
         End If
 
     Loop
-
-    Dim Response As VbMsgBoxResult
     
-    Response = MsgBox( _
-        "SOD generated successfully." & vbCrLf & vbCrLf & _
-        "Would you like to open the document now?", _
-        vbYesNo + vbQuestion, _
-        "SOD Generator")
-    
-    If Response = vbYes Then
-    
-        wdApp.Visible = True
-        wdDoc.Activate
-    
-    Else
-    
-        wdDoc.Close SaveChanges:=True
-        wdApp.Quit
-    
-    End If
+        Response = MsgBox( _
+            "SOD generated successfully." & vbCrLf & vbCrLf & _
+            "Would you like to view the document?", _
+            vbYesNo + vbQuestion, _
+            "SOD Generator")
+        
+        If Response = vbYes Then
+        
+            wdApp.Visible = True
+        
+        Else
+        
+            wdApp.Visible = True
+        
+            wdDoc.Close SaveChanges:=True
+        
+            If wdApp.Documents.Count = 0 Then
+                wdApp.Quit
+            End If
+        
+        End If
     
     Exit Sub
 
@@ -116,6 +120,7 @@ ErrHandler:
     MsgBox Err.Description, vbCritical
 
 End Sub
+
 
 '====================================================
 ' WORD
@@ -135,7 +140,7 @@ Private Function GetWordApp() As Object
 
     On Error GoTo 0
 
-    wdApp.Visible = True
+    wdApp.Visible = False
 
     Set GetWordApp = wdApp
 
@@ -546,4 +551,3 @@ Private Sub FormatTable(ByVal tbl As Object)
     On Error GoTo 0
 
 End Sub
-
