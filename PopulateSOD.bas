@@ -2,18 +2,13 @@ Attribute VB_Name = "Module7"
 Option Explicit
 
 '====================================================
-' SOD GENERATOR
+' SOD POPULATION
 '
-' Requires Template.docx built per Template_Spec.md:
-'   Bookmarks : DocTitle, ContentStart
-'   Styles    : "SOD Title", "SOD Subtitle", "SOD Heading", "SOD Body"
-'   Table Sty : "SOD Table"
+' No external template file. All formatting (styles, fonts, colors) is
+' defined in the FORMATTING section below and built into each generated
+' document at runtime via BuildStyles. Edit that section to change the
+' document's appearance.
 '====================================================
-
-' --- registry keys (per-user, persists across sessions) ---
-Private Const REGISTRY_APP As String = "SOPGenerator"
-Private Const REGISTRY_SECTION As String = "Config"
-Private Const REGISTRY_KEY_TEMPLATE As String = "TemplatePath"
 
 ' --- validation severities ---
 Private Const SEV_FATAL As String = "FATAL"
@@ -23,6 +18,27 @@ Private Const SEV_WARN As String = "WARNING"
 Private Const wdBulletGallery As Long = 2
 Private Const wdListApplyToWholeList As Long = 0
 Private Const wdWord10ListBehavior As Long = 2
+Private Const wdStyleTypeParagraph As Long = 1
+
+'====================================================
+' FORMATTING — edit these to change document appearance
+'====================================================
+Private Const DOCUMENT_SUBTITLE As String = "Standard Operating Document"
+
+Private Const GREG_BLUE As Long = &H88431B
+
+Private Const TITLE_FONT As String = "Bebas Neue"
+Private Const TITLE_SIZE As Long = 20
+Private Const TITLE_COLOR As Long = GREG_BLUE
+
+Private Const SUBTITLE_FONT As String = "Lato"
+Private Const SUBTITLE_SIZE As Long = 12
+
+Private Const HEADING_FONT As String = "Bebas Neue"
+Private Const HEADING_SIZE As Long = 18
+
+Private Const BODY_FONT As String = "Aptos"
+Private Const BODY_SIZE As Long = 12
 
 
 '====================================================
@@ -48,7 +64,7 @@ Public Sub ValidateSOD()
     Set issues = ValidateSheet(tbl)
 
     If issues.Count = 0 Then
-        MsgBox "No issues found. Sheet is ready to generate.", vbInformation, "Validate SOD"
+        MsgBox "No issues found. Sheet is ready to populate.", vbInformation, "Validate SOD"
     Else
         MsgBox FormatIssueReport(issues), vbExclamation, "Validate SOD"
     End If
@@ -71,8 +87,6 @@ Public Sub PopulateSOD()
     Dim wdDoc As Object
     Dim weCreatedApp As Boolean
 
-    Dim templatePath As String
-    Dim tempPath As String
     Dim col As Long
     Dim hdr As String
 
@@ -96,24 +110,16 @@ Public Sub PopulateSOD()
     Set issues = ValidateSheet(tbl)
 
     If HasSeverity(issues, SEV_FATAL) Then
-        MsgBox "Cannot generate:" & vbCrLf & vbCrLf & FormatIssueReport(issues), _
-               vbCritical, "SOD Generator"
+        MsgBox "Cannot populate:" & vbCrLf & vbCrLf & FormatIssueReport(issues), _
+               vbCritical, "SOD Populator"
         Exit Sub
     End If
 
     If issues.Count > 0 Then
         Response = MsgBox(FormatIssueReport(issues) & vbCrLf & vbCrLf & _
-            "Fix these now instead of generating?", vbYesNo + vbExclamation, "SOD Generator")
+            "Fix these now instead of continuing?", vbYesNo + vbExclamation, "SOD Population")
         If Response = vbYes Then Exit Sub
         ' else: continue best-effort; orphaned/unrecognized columns are skipped, as before
-    End If
-
-    ' ---- Locate template ----
-    templatePath = GetTemplatePath()
-
-    If templatePath = "" Or Dir(templatePath) = "" Then
-        MsgBox "Could not locate Template.docx. Generation cancelled.", vbCritical
-        Exit Sub
     End If
 
     ' ---- Determine document title (also used for the output filename) ----
@@ -126,14 +132,11 @@ Public Sub PopulateSOD()
 
     If DocTitle = "" Then DocTitle = "Populated SOD"
 
-    ' ---- Fresh working copy of the template ----
-    tempPath = Environ$("TEMP") & "\SOD_" & Format(Now, "yyyymmdd_hhnnss") & ".docx"
-    FileCopy templatePath, tempPath
-
+    ' ---- Fresh blank document with our styles built in ----
     Set wdApp = GetWordApp(weCreatedApp)
-    Set wdDoc = wdApp.Documents.Open(tempPath)
+    Set wdDoc = wdApp.Documents.Add
 
-    ValidateTemplate wdDoc
+    BuildStyles wdDoc
 
     ' ---- Title ----
     WriteDocumentTitle wdDoc, DocTitle
@@ -170,9 +173,9 @@ Public Sub PopulateSOD()
 
     ' ---- Finish ----
     Response = MsgBox( _
-        "SOD generated successfully." & vbCrLf & vbCrLf & _
+        "SOD populated successfully." & vbCrLf & vbCrLf & _
         "Would you like to view the document?", _
-        vbYesNo + vbQuestion, "SOD Generator")
+        vbYesNo + vbQuestion, "SOD Populator")
 
     wdApp.Visible = True
 
@@ -200,10 +203,6 @@ Public Sub PopulateSOD()
         End If
     End If
 
-    On Error Resume Next
-    Kill tempPath
-    On Error GoTo 0
-
     Exit Sub
 
 ErrHandler:
@@ -218,7 +217,6 @@ ErrHandler:
             If wdApp.Documents.Count = 0 Then wdApp.Quit
         End If
     End If
-    If tempPath <> "" Then Kill tempPath
     On Error GoTo 0
 
     MsgBox errMsg, vbCritical
@@ -337,7 +335,7 @@ End Function
 
 
 '====================================================
-' WORD APPLICATION / TEMPLATE ACCESS
+' WORD APPLICATION
 '====================================================
 
 Private Function GetWordApp(ByRef weCreatedApp As Boolean) As Object
@@ -360,77 +358,60 @@ Private Function GetWordApp(ByRef weCreatedApp As Boolean) As Object
 
 End Function
 
-Private Function DefaultTemplatePath() As String
+Private Sub BuildStyles(ByVal wdDoc As Object)
 
-    ' TODO: point this at your SharePoint-synced templates folder once set up
-    DefaultTemplatePath = Environ$("USERPROFILE") & _
-        "\CompanyName\SOP Site - Templates\Template.docx"
-
-End Function
-
-Private Function GetTemplatePath() As String
-
-    Dim savedPath As String
-    Dim picked As Variant
-
-    savedPath = GetSetting(REGISTRY_APP, REGISTRY_SECTION, REGISTRY_KEY_TEMPLATE, "")
-
-    If savedPath = "" Or Dir(savedPath) = "" Then
-
-        If Dir(DefaultTemplatePath()) <> "" Then
-            savedPath = DefaultTemplatePath()
-        Else
-            picked = Application.GetOpenFilename( _
-                "Word Files (*.docx), *.docx", _
-                Title:="Locate Template.docx")
-
-            If picked = False Then
-                GetTemplatePath = ""
-                Exit Function
-            End If
-
-            savedPath = CStr(picked)
-        End If
-
-        SaveSetting REGISTRY_APP, REGISTRY_SECTION, REGISTRY_KEY_TEMPLATE, savedPath
-
-    End If
-
-    GetTemplatePath = savedPath
-
-End Function
-
-Private Sub ValidateTemplate(ByVal wdDoc As Object)
-
-    Dim missing As String
-    Dim names As Variant
-    Dim i As Long
     Dim s As Object
 
-    names = Array("DocTitle", "ContentStart")
-    For i = LBound(names) To UBound(names)
-        If Not wdDoc.Bookmarks.Exists(names(i)) Then
-            missing = missing & "- Bookmark: " & names(i) & vbCrLf
-        End If
-    Next i
+    Set s = AddOrGetStyle(wdDoc, "SOD Title")
+    With s.Font
+        .Name = TITLE_FONT
+        .Size = TITLE_SIZE
+        .Color = GREG_BLUE
+        .Spacing = 2
+    End With
 
-    names = Array("SOD Title", "SOD Subtitle", "SOD Heading", "SOD Body")
-    For i = LBound(names) To UBound(names)
-        Set s = Nothing
-        On Error Resume Next
-        Set s = wdDoc.Styles(names(i))
-        On Error GoTo 0
-        If s Is Nothing Then
-            missing = missing & "- Style: " & names(i) & vbCrLf
-        End If
-    Next i
+    Set s = AddOrGetStyle(wdDoc, "SOD Subtitle")
+    With s.Font
+        .Name = SUBTITLE_FONT
+        .Size = SUBTITLE_SIZE
+        .Allcaps = True
+        .Spacing = 1
+    End With
 
-    If missing <> "" Then
-        Err.Raise vbObjectError + 2, , _
-            "Template.docx is missing required items:" & vbCrLf & missing
-    End If
+    Set s = AddOrGetStyle(wdDoc, "SOD Heading")
+    With s.Font
+        .Name = HEADING_FONT
+        .Size = HEADING_SIZE
+        .Color = GREG_BLUE
+        .Spacing = 2
+    End With
+    s.ParagraphFormat.SpaceBefore = 12
+    s.ParagraphFormat.SpaceAfter = 6
+
+    Set s = AddOrGetStyle(wdDoc, "SOD Body")
+    With s.Font
+        .Name = BODY_FONT
+        .Size = BODY_SIZE
+    End With
+    s.ParagraphFormat.SpaceAfter = 6
 
 End Sub
+
+Private Function AddOrGetStyle(ByVal wdDoc As Object, ByVal styleName As String) As Object
+
+    Dim s As Object
+
+    On Error Resume Next
+    Set s = wdDoc.Styles(styleName)
+    On Error GoTo 0
+
+    If s Is Nothing Then
+        Set s = wdDoc.Styles.Add(Name:=styleName, Type:=wdStyleTypeParagraph)
+    End If
+
+    Set AddOrGetStyle = s
+
+End Function
 
 Private Function SanitizeFilename(ByVal txt As String) As String
 
@@ -457,10 +438,14 @@ Private Sub WriteDocumentTitle(ByVal wdDoc As Object, ByVal TitleText As String)
 
     Dim rng As Object
 
-    Set rng = wdDoc.Bookmarks("DocTitle").Range
-    rng.Text = TitleText
-    wdDoc.Bookmarks.Add "DocTitle", rng
-    rng.Style = "SOD Title"
+    ' Documents.Add starts with a single empty paragraph; insert before it.
+    Set rng = wdDoc.Content
+    rng.InsertAfter TitleText & vbCr
+    wdDoc.Paragraphs(1).Range.Style = "SOD Title"
+
+    rng.Collapse 0
+    rng.InsertAfter DOCUMENT_SUBTITLE & vbCr
+    wdDoc.Paragraphs(2).Range.Style = "SOD Subtitle"
 
 End Sub
 
@@ -628,16 +613,10 @@ Private Sub CreateTableSection(ByVal wdDoc As Object, _
         Next c
     Next r
 
-    On Error Resume Next
-    wdTable.Style = "SOD Table"
-    If Err.Number <> 0 Then
-        Err.Clear
-        wdTable.Style = "Table Grid"
-    End If
-    On Error GoTo 0
-
+    wdTable.Style = "Table Grid"
     wdTable.Rows(1).Range.Bold = True
     wdTable.Rows(1).HeadingFormat = True
+    wdTable.Rows(1).Shading.BackgroundPatternColor = RGB(230, 230, 230)   ' light gray header
 
     wdDoc.Content.InsertAfter vbCr
 
@@ -722,8 +701,7 @@ Private Function GetDocumentTitle(ByVal tbl As ListObject, ByVal TitleCol As Lon
         End If
     Next r
 
-    GetDocumentTitle = "Generated SOD"
+    GetDocumentTitle = "Populated SOD"
 
 End Function
-
 
