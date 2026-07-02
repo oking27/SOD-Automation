@@ -7,7 +7,7 @@ Option Explicit
 Private Const DOCUMENT_SUBTITLE As String = _
     "Standard Operating Document"
 
-Public Sub GenerateSOD()
+Public Sub GenerateSODs()
 
     Dim Response As VbMsgBoxResult
     
@@ -299,7 +299,7 @@ Private Sub CreateTableSection(ByVal wdDoc As Object, _
 
         For c = 1 To colCount
 
-            wdTable.cell(r, c).Range.Text = _
+            wdTable.Cell(r, c).Range.Text = _
                 tbl.DataBodyRange(r, firstCol + c - 1).Value
 
         Next c
@@ -338,7 +338,7 @@ End Function
 ' TABLE HEADER DETECTION
 '====================================================
 
-Private Function HasTableColumns(ByVal tbl As ListObject, _
+Public Function HasTableColumns(ByVal tbl As ListObject, _
                                  ByVal colNum As Long) As Boolean
 
     If colNum >= tbl.ListColumns.Count Then Exit Function
@@ -369,7 +369,7 @@ Private Sub WriteDocumentTitle(ByVal wdDoc As Object, _
 
 End Sub
 
-Private Function GetLastTableColumn(ByVal tbl As ListObject, _
+Public Function GetLastTableColumn(ByVal tbl As ListObject, _
                                     ByVal colNum As Long) As Long
 
     Dim c As Long
@@ -417,7 +417,7 @@ Private Function GetLastBulletColumn(ByVal tbl As ListObject, _
 
 End Function
 
-Private Function IsTableColumn(ByVal txt As String) As Boolean
+Public Function IsTableColumn(ByVal txt As String) As Boolean
 
     txt = Trim(txt)
 
@@ -427,7 +427,7 @@ Private Function IsTableColumn(ByVal txt As String) As Boolean
 
 End Function
 
-Private Function IsBulletColumn(ByVal txt As String) As Boolean
+Public Function IsBulletColumn(ByVal txt As String) As Boolean
 
     txt = Trim(txt)
 
@@ -437,7 +437,7 @@ Private Function IsBulletColumn(ByVal txt As String) As Boolean
 
 End Function
 
-Private Function IsTitleColumn(ByVal txt As String) As Boolean
+Public Function IsTitleColumn(ByVal txt As String) As Boolean
 
     IsTitleColumn = (LCase(Trim(txt)) = "title")
 
