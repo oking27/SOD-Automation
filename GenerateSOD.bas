@@ -4,6 +4,8 @@ Option Explicit
 '====================================================
 ' SOD GENERATOR
 '====================================================
+Private Const DOCUMENT_SUBTITLE As String = _
+    "Standard Operating Document"
 
 Public Sub GenerateSOD()
 
@@ -29,6 +31,23 @@ Public Sub GenerateSOD()
 
     Set wdApp = GetWordApp()
     Set wdDoc = wdApp.Documents.Add
+    
+    Dim TitleCol As Long
+    Dim DocTitle As String
+    
+    For TitleCol = 1 To tbl.ListColumns.Count
+    
+        If IsTitleColumn(tbl.ListColumns(TitleCol).Name) Then
+    
+            DocTitle = GetDocumentTitle(tbl, TitleCol)
+    
+            WriteDocumentTitle wdDoc, DocTitle
+    
+            Exit For
+    
+        End If
+    
+    Next TitleCol
 
     col = 1
 
@@ -36,7 +55,9 @@ Public Sub GenerateSOD()
 
         hdr = Trim(tbl.ListColumns(col).Name)
 
-        If Not IsTableColumn(hdr) And Not IsBulletColumn(hdr) Then
+        If Not IsTableColumn(hdr) _
+        And Not IsBulletColumn(hdr) _
+        And Not IsTitleColumn(hdr) Then
 
             WriteHeading wdDoc, hdr
 
@@ -322,6 +343,27 @@ Private Function HasTableColumns(ByVal tbl As ListObject, _
 
 End Function
 
+Private Sub WriteDocumentTitle(ByVal wdDoc As Object, _
+                               ByVal TitleText As String)
+
+    Dim rng As Object
+
+    Set rng = wdDoc.Content
+    rng.Collapse 0
+
+    rng.InsertAfter TitleText & vbCrLf
+    rng.InsertAfter "Standard Operating Document" & vbCrLf & vbCrLf
+
+    Set rng = wdDoc.Paragraphs(1).Range
+
+    With rng.Font
+        .Bold = True
+        .Size = 22
+        .Name = "Aptos"
+    End With
+
+End Sub
+
 Private Function GetLastTableColumn(ByVal tbl As ListObject, _
                                     ByVal colNum As Long) As Long
 
@@ -387,6 +429,34 @@ Private Function IsBulletColumn(ByVal txt As String) As Boolean
     If InStr(txt, " ") > 0 Then Exit Function
 
     IsBulletColumn = (LCase(Left(txt, 6)) = "bullet")
+
+End Function
+
+Private Function IsTitleColumn(ByVal txt As String) As Boolean
+
+    IsTitleColumn = (LCase(Trim(txt)) = "title")
+
+End Function
+
+Private Function GetDocumentTitle(ByVal tbl As ListObject, _
+                                  ByVal TitleCol As Long) As String
+
+    Dim r As Long
+
+    For r = 1 To tbl.ListRows.Count
+
+        If Trim(tbl.DataBodyRange(r, TitleCol).Value) <> "" Then
+
+            GetDocumentTitle = _
+                Trim(tbl.DataBodyRange(r, TitleCol).Value)
+
+            Exit Function
+
+        End If
+
+    Next r
+
+    GetDocumentTitle = "Generated SOD"
 
 End Function
 
