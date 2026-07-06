@@ -15,7 +15,7 @@ Private Const SEV_FATAL As String = "FATAL"
 Private Const SEV_WARN As String = "WARNING"
 
 ' --- Word constants (late-bound, so mirrored locally) ---
-Private Const wdBulletGallery As Long = 2
+Private Const wdBulletGallery As Long = 1
 Private Const wdListApplyToWholeList As Long = 0
 Private Const wdWord10ListBehavior As Long = 2
 Private Const wdStyleTypeParagraph As Long = 1
@@ -148,26 +148,42 @@ Public Sub PopulateSOD()
 
         hdr = Trim(tbl.ListColumns(col).Name)
 
-        If Not IsTableColumn(hdr) And Not IsBulletColumn(hdr) And Not IsTitleColumn(hdr) Then
-
+    If Not IsTableColumn(hdr) And Not IsBulletColumn(hdr) And Not IsTitleColumn(hdr) Then
+    
+        If RenderSpecialSection(wdDoc, tbl, col) Then
+    
+            If HasTableColumns(tbl, col) Then
+                col = GetLastTableColumn(tbl, col) + 1
+    
+            ElseIf HasBulletColumns(tbl, col) Then
+                col = GetLastBulletColumn(tbl, col) + 1
+    
+            Else
+                col = col + 1
+            End If
+    
+        Else
+    
             WriteHeading wdDoc, hdr
-
+    
             If HasTableColumns(tbl, col) Then
                 CreateTableSection wdDoc, tbl, col
                 col = GetLastTableColumn(tbl, col) + 1
-
+    
             ElseIf HasBulletColumns(tbl, col) Then
                 CreateNestedBulletSection wdDoc, tbl, col
                 col = GetLastBulletColumn(tbl, col) + 1
-
+    
             Else
                 CreateContentSection wdDoc, tbl, col
                 col = col + 1
             End If
-
-        Else
-            col = col + 1
+    
         End If
+    
+    Else
+        col = col + 1
+    End If
 
     Loop
 
@@ -223,6 +239,245 @@ ErrHandler:
 
 End Sub
 
+Private Function RenderSpecialSection( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long) As Boolean
+
+    Select Case LCase(Trim(tbl.ListColumns(colNum).Name))
+
+        Case "purpose"
+            RenderPurpose wdDoc, tbl, colNum
+            RenderSpecialSection = True
+
+        Case "scope"
+            RenderScope wdDoc, tbl, colNum
+            RenderSpecialSection = True
+
+        Case "roles"
+            RenderRoles wdDoc, tbl, colNum
+            RenderSpecialSection = True
+
+        Case "process steps"
+            RenderProcessSteps wdDoc, tbl, colNum
+            RenderSpecialSection = True
+
+        Case "key performance indicators"
+            RenderKPIs wdDoc, tbl, colNum
+            RenderSpecialSection = True
+
+        Case "additional resources"
+            RenderAdditionalResources wdDoc, tbl, colNum
+            RenderSpecialSection = True
+
+        Case Else
+            RenderSpecialSection = False
+
+    End Select
+
+End Function
+
+Private Sub RenderPurpose( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long)
+
+    Dim txt As String
+    txt = GetCombinedText(tbl, colNum)
+
+    WriteBoldInlineLabel wdDoc, "Purpose", txt
+
+End Sub
+
+Private Sub RenderScope( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long)
+
+    WriteBoldInlineLabel wdDoc, "Scope", GetCombinedText(tbl, colNum)
+
+End Sub
+
+Private Sub WriteBoldInlineLabel( _
+    ByVal wdDoc As Object, _
+    ByVal lbl As String, _
+    ByVal txt As String)
+
+    Dim p As Object
+
+    wdDoc.Content.InsertAfter lbl & ": " & txt & vbCr
+
+    Set p = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
+
+    p.Style = "SOD Body"
+
+    p.Words(1).Bold = True
+
+End Sub
+
+Private Sub RenderRoles( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long)
+
+    Dim bulletCol As Long
+    Dim r As Long
+    Dim role As String
+    Dim para As Object
+
+    WriteHeading wdDoc, "Roles"
+
+    bulletCol = colNum + 1
+
+    For r = 1 To tbl.ListRows.Count
+
+        role = Trim(tbl.DataBodyRange(r, colNum).Value)
+
+        If role <> "" Then
+
+            wdDoc.Content.InsertAfter role & vbCr
+
+            Set para = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
+
+            para.Style = "SOD Body"
+            para.Bold = True
+
+        End If
+
+        If bulletCol <= tbl.ListColumns.Count Then
+
+            If Trim(tbl.DataBodyRange(r, bulletCol).Value) <> "" Then
+
+                wdDoc.Content.InsertAfter _
+                    tbl.DataBodyRange(r, bulletCol).Value & vbCr
+
+                Set para = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
+
+                para.Style = "SOD Body"
+
+                para.ParagraphFormat.LeftIndent = 24
+
+            End If
+
+        End If
+
+    Next r
+
+End Sub
+
+Private Sub RenderProcessSteps( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long)
+
+    Dim bulletCol As Long
+    Dim r As Long
+    Dim stepText As String
+    Dim rng As Object
+
+    WriteHeading wdDoc, "Process Steps"
+
+    bulletCol = colNum + 1
+
+    For r = 1 To tbl.ListRows.Count
+
+        stepText = Trim(tbl.DataBodyRange(r, colNum).Value)
+
+        If stepText <> "" Then
+
+            wdDoc.Content.InsertAfter stepText & ":" & vbCr
+
+            Set rng = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
+
+            rng.Style = "SOD Body"
+
+            rng.Bold = True
+
+            rng.ListFormat.ApplyNumberDefault
+
+        End If
+
+        If bulletCol <= tbl.ListColumns.Count Then
+
+            If Trim(tbl.DataBodyRange(r, bulletCol).Value) <> "" Then
+
+                wdDoc.Content.InsertAfter _
+                    tbl.DataBodyRange(r, bulletCol).Value & vbCr
+
+                Set rng = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
+
+                rng.Style = "SOD Body"
+
+                rng.ParagraphFormat.LeftIndent = 40
+
+            End If
+
+        End If
+
+    Next r
+
+End Sub
+
+Private Sub RenderKPIs( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long)
+
+    WriteHeading wdDoc, "Key Performance Indicators"
+    
+    .SetCount NumColumns:=2
+
+
+    'TODO
+    'Convert this section to two newspaper columns.
+
+End Sub
+
+Private Sub RenderAdditionalResources( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long)
+
+    WriteHeading wdDoc, "Additional Resources"
+
+    CreateTableSection wdDoc, tbl, colNum
+
+    'TODO
+
+    'Center header row
+
+    'Bold header row
+
+    'Number first column
+
+End Sub
+
+Private Function GetCombinedText( _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long) As String
+
+    Dim r As Long
+
+    For r = 1 To tbl.ListRows.Count
+
+        If Trim(tbl.DataBodyRange(r, colNum).Value) <> "" Then
+
+            If Len(GetCombinedText) > 0 Then
+
+                GetCombinedText = _
+                    GetCombinedText & " "
+
+            End If
+
+            GetCombinedText = _
+                GetCombinedText & _
+                Trim(tbl.DataBodyRange(r, colNum).Value)
+
+        End If
+
+    Next r
+
+End Function
 
 '====================================================
 ' VALIDATION
@@ -369,6 +624,9 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
         .Color = GREG_BLUE
         .Spacing = 2
     End With
+    s.ParagraphFormat.SpaceBefore = 0
+    s.ParagraphFormat.SpaceAfter = 0
+    s.ParagraphFormat.Alignment = 1
 
     Set s = AddOrGetStyle(wdDoc, "SOD Subtitle")
     With s.Font
@@ -377,6 +635,9 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
         .Allcaps = True
         .Spacing = 1
     End With
+    s.ParagraphFormat.SpaceBefore = 0
+    s.ParagraphFormat.SpaceAfter = 2
+    s.ParagraphFormat.Alignment = 1
 
     Set s = AddOrGetStyle(wdDoc, "SOD Heading")
     With s.Font
@@ -385,15 +646,17 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
         .Color = GREG_BLUE
         .Spacing = 2
     End With
-    s.ParagraphFormat.SpaceBefore = 12
-    s.ParagraphFormat.SpaceAfter = 6
+    s.ParagraphFormat.SpaceBefore = 18
+    s.ParagraphFormat.SpaceAfter = 0
+    s.ParagraphFormat.Alignment = 1
 
     Set s = AddOrGetStyle(wdDoc, "SOD Body")
     With s.Font
         .Name = BODY_FONT
         .Size = BODY_SIZE
     End With
-    s.ParagraphFormat.SpaceAfter = 6
+    s.ParagraphFormat.SpaceBefore = 0
+    s.ParagraphFormat.SpaceAfter = 4
 
 End Sub
 
@@ -520,7 +783,7 @@ Private Sub ApplyBulletLevel(ByVal rng As Object, ByVal level As Long)
     With rng.ListFormat
         .ApplyListTemplateWithLevel _
             ListTemplate:=rng.Application.ListGalleries(wdBulletGallery).ListTemplates(1), _
-            ContinuePreviousList:=True, _
+            ContinuePreviousList:=False, _
             ApplyTo:=wdListApplyToWholeList, _
             DefaultListBehavior:=wdWord10ListBehavior
         .ListLevelNumber = level
