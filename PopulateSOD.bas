@@ -425,7 +425,7 @@ Private Sub RenderKPIs( _
 
     WriteHeading wdDoc, "Key Performance Indicators"
     
-    .SetCount NumColumns:=2
+    '.SetCount NumColumns:=2
 
 
     'TODO
@@ -736,15 +736,15 @@ Private Sub CreateContentSection(ByVal wdDoc As Object, _
                                  ByVal colNum As Long)
 
     Dim r As Long
-    Dim lastRow As Long
+    Dim LastRow As Long
     Dim block As Collection
 
     Set block = New Collection
-    lastRow = tbl.ListRows.Count
+    LastRow = tbl.ListRows.Count
 
-    For r = 1 To lastRow + 1
+    For r = 1 To LastRow + 1
 
-        If r <= lastRow Then
+        If r <= LastRow Then
 
             If Trim(tbl.DataBodyRange(r, colNum).Value) <> "" Then
                 block.Add tbl.DataBodyRange(r, colNum).Value
@@ -817,16 +817,16 @@ Private Sub CreateNestedBulletSection(ByVal wdDoc As Object, _
                                       ByVal parentCol As Long)
 
     Dim r As Long, c As Long
-    Dim lastRow As Long
+    Dim LastRow As Long
     Dim bulletLastCol As Long
     Dim txt As String
     Dim level As Long
     Dim rng As Object
 
     bulletLastCol = GetLastBulletColumn(tbl, parentCol)
-    lastRow = tbl.ListRows.Count
+    LastRow = tbl.ListRows.Count
 
-    For r = 1 To lastRow
+    For r = 1 To LastRow
         For c = parentCol To bulletLastCol
 
             txt = Trim(tbl.DataBodyRange(r, c).Value)
