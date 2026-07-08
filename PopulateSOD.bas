@@ -1,4 +1,5 @@
 Attribute VB_Name = "Module7"
+
 Option Explicit
 
 '====================================================
@@ -9,6 +10,10 @@ Option Explicit
 ' document at runtime via BuildStyles. Edit that section to change the
 ' document's appearance.
 '====================================================
+
+' tracks whether the "Short Form Process Guide" header has been written
+Private mShortFormHeaderWritten As Boolean
+Private Const wdSectionBreakContinuous As Long = 3
 
 ' --- validation severities ---
 Private Const SEV_FATAL As String = "FATAL"
@@ -37,7 +42,7 @@ Private Const SUBTITLE_SIZE As Long = 12
 Private Const HEADING_FONT As String = "Bebas Neue"
 Private Const HEADING_SIZE As Long = 18
 
-Private Const BODY_FONT As String = "Aptos"
+Private Const BODY_FONT As String = "Lato"
 Private Const BODY_SIZE As Long = 12
 
 
@@ -137,6 +142,7 @@ Public Sub PopulateSOD()
     Set wdDoc = wdApp.Documents.Add
 
     BuildStyles wdDoc
+    mShortFormHeaderWritten = False
 
     ' ---- Title ----
     WriteDocumentTitle wdDoc, DocTitle
@@ -282,10 +288,12 @@ Private Sub RenderPurpose( _
     ByVal tbl As ListObject, _
     ByVal colNum As Long)
 
-    Dim txt As String
-    txt = GetCombinedText(tbl, colNum)
+    If Not mShortFormHeaderWritten Then
+        WriteHeading wdDoc, "Short Form Process Guide"
+        mShortFormHeaderWritten = True
+    End If
 
-    WriteBoldInlineLabel wdDoc, "Purpose", txt
+    WriteBoldInlineLabel wdDoc, "Purpose", GetCombinedText(tbl, colNum)
 
 End Sub
 
@@ -293,6 +301,11 @@ Private Sub RenderScope( _
     ByVal wdDoc As Object, _
     ByVal tbl As ListObject, _
     ByVal colNum As Long)
+
+    If Not mShortFormHeaderWritten Then
+        WriteHeading wdDoc, "Short Form Process Guide"
+        mShortFormHeaderWritten = True
+    End If
 
     WriteBoldInlineLabel wdDoc, "Scope", GetCombinedText(tbl, colNum)
 
@@ -320,46 +333,40 @@ Private Sub RenderRoles( _
     ByVal tbl As ListObject, _
     ByVal colNum As Long)
 
-    Dim bulletCol As Long
-    Dim r As Long
+    Dim r As Long, c As Long
     Dim role As String
+    Dim txt As String
     Dim para As Object
+    Dim firstHelperCol As Long, lastHelperCol As Long
 
-    WriteHeading wdDoc, "Roles"
+    WriteHeading wdDoc, Trim(tbl.ListColumns(colNum).Name)
 
-    bulletCol = colNum + 1
+    firstHelperCol = colNum + 1
+    lastHelperCol = GetLastBulletColumn(tbl, colNum)
 
     For r = 1 To tbl.ListRows.Count
 
         role = Trim(tbl.DataBodyRange(r, colNum).Value)
 
         If role <> "" Then
-
             wdDoc.Content.InsertAfter role & vbCr
-
             Set para = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
-
             para.Style = "SOD Body"
             para.Bold = True
-
         End If
 
-        If bulletCol <= tbl.ListColumns.Count Then
-
-            If Trim(tbl.DataBodyRange(r, bulletCol).Value) <> "" Then
-
-                wdDoc.Content.InsertAfter _
-                    tbl.DataBodyRange(r, bulletCol).Value & vbCr
-
-                Set para = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
-
-                para.Style = "SOD Body"
-
-                para.ParagraphFormat.LeftIndent = 24
-
+        ' Render all helper columns as indented lines
+        For c = firstHelperCol To lastHelperCol
+            If c <= tbl.ListColumns.Count Then
+                txt = Trim(tbl.DataBodyRange(r, c).Value)
+                If txt <> "" Then
+                    wdDoc.Content.InsertAfter txt & vbCr
+                    Set para = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
+                    para.Style = "SOD Body"
+                    para.ParagraphFormat.LeftIndent = 24
+                End If
             End If
-
-        End If
+        Next c
 
     Next r
 
@@ -370,49 +377,44 @@ Private Sub RenderProcessSteps( _
     ByVal tbl As ListObject, _
     ByVal colNum As Long)
 
-    Dim bulletCol As Long
-    Dim r As Long
+    Dim r As Long, c As Long
     Dim stepText As String
+    Dim txt As String
     Dim rng As Object
+    Dim firstHelperCol As Long, lastHelperCol As Long
 
-    WriteHeading wdDoc, "Process Steps"
+    WriteHeading wdDoc, Trim(tbl.ListColumns(colNum).Name)
 
-    bulletCol = colNum + 1
+    firstHelperCol = colNum + 1
+    lastHelperCol = GetLastBulletColumn(tbl, colNum)
 
     For r = 1 To tbl.ListRows.Count
 
         stepText = Trim(tbl.DataBodyRange(r, colNum).Value)
 
         If stepText <> "" Then
-
+            ' Add colon to the step text before inserting
             wdDoc.Content.InsertAfter stepText & ":" & vbCr
-
             Set rng = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
-
             rng.Style = "SOD Body"
-
             rng.Bold = True
-
+            
+            ' Apply numbering; results in "1. Project setup:"
             rng.ListFormat.ApplyNumberDefault
-
         End If
 
-        If bulletCol <= tbl.ListColumns.Count Then
-
-            If Trim(tbl.DataBodyRange(r, bulletCol).Value) <> "" Then
-
-                wdDoc.Content.InsertAfter _
-                    tbl.DataBodyRange(r, bulletCol).Value & vbCr
-
-                Set rng = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
-
-                rng.Style = "SOD Body"
-
-                rng.ParagraphFormat.LeftIndent = 40
-
+        ' Render all helper columns as indented lines
+        For c = firstHelperCol To lastHelperCol
+            If c <= tbl.ListColumns.Count Then
+                txt = Trim(tbl.DataBodyRange(r, c).Value)
+                If txt <> "" Then
+                    wdDoc.Content.InsertAfter txt & vbCr
+                    Set rng = wdDoc.Paragraphs(wdDoc.Paragraphs.Count - 1).Range
+                    rng.Style = "SOD Body"
+                    rng.ParagraphFormat.LeftIndent = 36
+                End If
             End If
-
-        End If
+        Next c
 
     Next r
 
@@ -423,13 +425,44 @@ Private Sub RenderKPIs( _
     ByVal tbl As ListObject, _
     ByVal colNum As Long)
 
-    WriteHeading wdDoc, "Key Performance Indicators"
+    Dim r As Long
+    Dim txt As String
+    Dim items As Collection
+    Dim rng As Object
+
+    WriteHeading wdDoc, Trim(tbl.ListColumns(colNum).Name)
+
+    ' Collect all non-empty items
+    Set items = New Collection
+    For r = 1 To tbl.ListRows.Count
+        txt = Trim(tbl.DataBodyRange(r, colNum).Value)
+        If txt <> "" Then
+            items.Add txt
+        End If
+    Next r
+
+    If items.Count = 0 Then Exit Sub
+
+    ' Insert opening section break for 2-column layout
+    Set rng = wdDoc.Content
+    rng.Collapse 0
+    rng.InsertBreak Type:=wdSectionBreakContinuous
     
-    '.SetCount NumColumns:=2
+    ' Set the new section to 2 columns
+    With wdDoc.Sections(wdDoc.Sections.Count).PageSetup.TextColumns
+        .SetCount 2
+        .EvenlySpaced = True
+        .LineBetween = False
+    End With
 
+    ' Write items as bullets
+    WriteBulletList wdDoc, items
 
-    'TODO
-    'Convert this section to two newspaper columns.
+    ' Insert closing section break to return to 1 column
+    Set rng = wdDoc.Content
+    rng.Collapse 0
+    rng.InsertBreak Type:=wdSectionBreakContinuous
+    wdDoc.Sections(wdDoc.Sections.Count).PageSetup.TextColumns.SetCount 1
 
 End Sub
 
@@ -438,17 +471,57 @@ Private Sub RenderAdditionalResources( _
     ByVal tbl As ListObject, _
     ByVal colNum As Long)
 
-    WriteHeading wdDoc, "Additional Resources"
+    Dim firstCol As Long, lastCol As Long
+    Dim rowCount As Long, colCount As Long
+    Dim wdTable As Object
+    Dim r As Long, c As Long
+    Dim rng As Object
 
-    CreateTableSection wdDoc, tbl, colNum
+    WriteHeading wdDoc, Trim(tbl.ListColumns(colNum).Name)
 
-    'TODO
+    ' Determine table structure (treat as a TableN column group)
+    firstCol = colNum
+    lastCol = GetLastTableColumn(tbl, colNum)
+    
+    ' If no explicit Table columns follow, treat this column alone as the table
+    If lastCol < colNum Then
+        lastCol = colNum
+    End If
 
-    'Center header row
+    rowCount = LastUsedTableRow(tbl, firstCol, lastCol)
 
-    'Bold header row
+    If rowCount = 0 Then Exit Sub
 
-    'Number first column
+    colCount = lastCol - firstCol + 1
+
+    ' Create the table
+    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount, colCount)
+
+    ' Populate table cells
+    For r = 1 To rowCount
+        For c = 1 To colCount
+            wdTable.Cell(r, c).Range.Text = Trim(tbl.DataBodyRange(r, firstCol + c - 1).Text)
+            
+            ' Apply Lato font to all cells
+            wdTable.Cell(r, c).Range.Font.Name = "Lato"
+            
+            ' Center and bold header row (row 1)
+            If r = 1 Then
+                wdTable.Cell(r, c).Range.ParagraphFormat.Alignment = 1  ' wdAlignParagraphCenter
+                wdTable.Cell(r, c).Range.Bold = True
+            End If
+        Next c
+    Next r
+
+    wdTable.Style = "Table Grid"
+
+    ' Number the first column starting from row 2 (skip header)
+    For r = 2 To rowCount
+        Set rng = wdTable.Cell(r, 1).Range
+        rng.ListFormat.ApplyNumberDefault
+    Next r
+
+    wdDoc.Content.InsertAfter vbCr
 
 End Sub
 
@@ -624,20 +697,23 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
         .Color = GREG_BLUE
         .Spacing = 2
     End With
-    s.ParagraphFormat.SpaceBefore = 0
+    s.ParagraphFormat.SpaceBefore = 10
     s.ParagraphFormat.SpaceAfter = 0
     s.ParagraphFormat.Alignment = 1
+    s.ParagraphFormat.LineSpacingRule = 0  ' wdLineSpaceSingle
 
     Set s = AddOrGetStyle(wdDoc, "SOD Subtitle")
     With s.Font
         .Name = SUBTITLE_FONT
         .Size = SUBTITLE_SIZE
+        .Bold = True
         .Allcaps = True
-        .Spacing = 1
+        .Spacing = 1.5  ' Extended letter spacing
     End With
     s.ParagraphFormat.SpaceBefore = 0
-    s.ParagraphFormat.SpaceAfter = 2
+    s.ParagraphFormat.SpaceAfter = 10
     s.ParagraphFormat.Alignment = 1
+    s.ParagraphFormat.LineSpacingRule = 0  ' wdLineSpaceSingle
 
     Set s = AddOrGetStyle(wdDoc, "SOD Heading")
     With s.Font
@@ -659,7 +735,6 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
     s.ParagraphFormat.SpaceAfter = 4
 
 End Sub
-
 Private Function AddOrGetStyle(ByVal wdDoc As Object, ByVal styleName As String) As Object
 
     Dim s As Object
@@ -699,16 +774,39 @@ End Function
 
 Private Sub WriteDocumentTitle(ByVal wdDoc As Object, ByVal TitleText As String)
 
-    Dim rng As Object
+    Dim tbl As Object
+    Dim cellRng As Object
+    Dim titleRange As Object, subtitleRange As Object
 
-    ' Documents.Add starts with a single empty paragraph; insert before it.
-    Set rng = wdDoc.Content
-    rng.InsertAfter TitleText & vbCr
-    wdDoc.Paragraphs(1).Range.Style = "SOD Title"
+    ' Create a 2-row, 1-column table for title banner
+    Set tbl = wdDoc.Tables.Add(wdDoc.Content.Characters.First, 2, 1)
 
-    rng.Collapse 0
-    rng.InsertAfter DOCUMENT_SUBTITLE & vbCr
-    wdDoc.Paragraphs(2).Range.Style = "SOD Subtitle"
+    ' Set table width to full page
+    tbl.PreferredWidthType = 2  ' wdPreferredWidthPercent
+    tbl.PreferredWidth = 100
+
+    ' Remove all borders
+    With tbl.Borders
+        .InsideLineStyle = 0  ' wdLineStyleNone
+        .OutsideLineStyle = 0  ' wdLineStyleNone
+    End With
+
+    ' Add only top and bottom borders
+    tbl.Borders(1).LineStyle = 1   ' wdLineStyleSingle (top)
+    tbl.Borders(3).LineStyle = 1   ' wdLineStyleSingle (bottom)
+    tbl.Borders(1).LineWidth = 8   ' wdLineWidth100pt
+
+    ' Row 1: Title (no trailing newline)
+    Set cellRng = tbl.Cell(1, 1).Range
+    cellRng.InsertAfter Trim(TitleText)
+    Set titleRange = cellRng
+    titleRange.Style = "SOD Title"
+
+    ' Row 2: Subtitle (no trailing newline)
+    Set cellRng = tbl.Cell(2, 1).Range
+    cellRng.InsertAfter DOCUMENT_SUBTITLE
+    Set subtitleRange = cellRng
+    subtitleRange.Style = "SOD Subtitle"
 
 End Sub
 
@@ -870,16 +968,21 @@ Private Sub CreateTableSection(ByVal wdDoc As Object, _
 
     For r = 1 To rowCount
         For c = 1 To colCount
-            ' .Text (not .Value) preserves displayed formatting: dates,
-            ' leading zeros on text-formatted numbers, etc.
-            wdTable.Cell(r, c).Range.Text = tbl.DataBodyRange(r, firstCol + c - 1).Text
+            ' Trim text; .Text preserves displayed formatting
+            wdTable.Cell(r, c).Range.Text = Trim(tbl.DataBodyRange(r, firstCol + c - 1).Text)
+            
+            ' Apply Lato font to all table cells
+            wdTable.Cell(r, c).Range.Font.Name = "Lato"
+            
+            ' Center align and bold header row (row 1)
+            If r = 1 Then
+                wdTable.Cell(r, c).Range.ParagraphFormat.Alignment = 1  ' wdAlignParagraphCenter
+                wdTable.Cell(r, c).Range.Bold = True
+            End If
         Next c
     Next r
 
     wdTable.Style = "Table Grid"
-    wdTable.Rows(1).Range.Bold = True
-    wdTable.Rows(1).HeadingFormat = True
-    wdTable.Rows(1).Shading.BackgroundPatternColor = RGB(230, 230, 230)   ' light gray header
 
     wdDoc.Content.InsertAfter vbCr
 
