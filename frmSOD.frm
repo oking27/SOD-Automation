@@ -69,6 +69,10 @@ Private Sub fraRowEditor_Click()
 
 End Sub
 
+Private Sub lstSubItems_Click()
+
+End Sub
+
 '====================================================
 ' FORM INITIALIZE
 '====================================================
@@ -958,29 +962,25 @@ Private Sub btnAddSection_Click()
 
     Dim secType As String
 
-    Dim choice As Long
-    choice = MsgBox("What type of section is this?" & vbCrLf & vbCrLf & _
-                    "Yes = Table" & vbCrLf & _
-                    "No = Bullets or Paragraph", _
-                    vbYesNoCancel + vbQuestion, "Section Type")
+    Dim choice1 As Long
+    choice1 = MsgBox("Is this new section a paragraph description?" & vbCrLf & vbCrLf & _
+                     "Yes = Simple paragraph text" & vbCrLf & _
+                     "No  = More advanced options (list or table)", _
+                     vbYesNo + vbQuestion, "Section Type")
 
-    If choice = vbCancel Then Exit Sub
-
-    If choice = vbYes Then
-        secType = TYPE_TABLE
+    If choice1 = vbYes Then
+        secType = TYPE_PLAIN
     Else
         Dim choice2 As Long
-        choice2 = MsgBox("Bullet list or plain paragraph?" & vbCrLf & vbCrLf & _
-                         "Yes = Bullets (items with optional sub-items)" & vbCrLf & _
-                         "No = Paragraph (plain text)", _
-                         vbYesNoCancel + vbQuestion, "Section Type")
-
-        If choice2 = vbCancel Then Exit Sub
+        choice2 = MsgBox("Is this new section a bulleted list?" & vbCrLf & vbCrLf & _
+                         "Yes = Nested text" & vbCrLf & _
+                         "No  = Table with rows and columns", _
+                         vbYesNo + vbQuestion, "Advanced Section Type")
 
         If choice2 = vbYes Then
             secType = TYPE_NESTED
         Else
-            secType = TYPE_PLAIN
+            secType = TYPE_TABLE
         End If
     End If
 
