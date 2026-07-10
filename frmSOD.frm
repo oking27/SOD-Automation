@@ -26,6 +26,7 @@ Private Const SEC_TITLE As String = "Title"
 Private Const SEC_PURPOSE As String = "Purpose"
 Private Const SEC_SCOPE As String = "Scope"
 Private Const SEC_ROLES As String = "Roles"
+Private Const SEC_OBJECTIVES As String = "Objectives"
 Private Const SEC_STEPS As String = "Process Steps"
 Private Const SEC_KPIS As String = "Key Performance Indicators"
 Private Const SEC_RESOURCES As String = "Additional Resources"
@@ -103,7 +104,7 @@ End Sub
 
 Private Sub InitSections()
 
-    mSecCount = 7
+    mSecCount = 8
     ReDim mSecNames(1 To mSecCount)
     ReDim mSecTypes(1 To mSecCount)
     ReDim mSecData(1 To mSecCount)
@@ -114,17 +115,19 @@ Private Sub InitSections()
     mSecNames(2) = SEC_PURPOSE
     mSecNames(3) = SEC_SCOPE
     mSecNames(4) = SEC_ROLES
-    mSecNames(5) = SEC_STEPS
-    mSecNames(6) = SEC_KPIS
-    mSecNames(7) = SEC_RESOURCES
+    mSecNames(5) = SEC_OBJECTIVES
+    mSecNames(6) = SEC_STEPS
+    mSecNames(7) = SEC_KPIS
+    mSecNames(8) = SEC_RESOURCES
 
     mSecTypes(1) = TYPE_PLAIN
     mSecTypes(2) = TYPE_PLAIN
     mSecTypes(3) = TYPE_PLAIN
     mSecTypes(4) = TYPE_NESTED
-    mSecTypes(5) = TYPE_NESTED
-    mSecTypes(6) = TYPE_LIST
-    mSecTypes(7) = TYPE_NESTED
+    mSecTypes(5) = TYPE_LIST
+    mSecTypes(6) = TYPE_NESTED
+    mSecTypes(7) = TYPE_LIST
+    mSecTypes(8) = TYPE_NESTED
 
     Dim i As Long
     For i = 1 To mSecCount
@@ -1188,16 +1191,28 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
     Set mSecItems(secIdx) = New Collection
 
     Dim r As Long
+    Dim mainVal As String
+    Dim currentMain As String
+    Dim currentSubs As String
+    Dim haveEntry As Boolean
+
+    haveEntry = False
+    currentMain = ""
+    currentSubs = ""
+
     For r = 1 To tbl.ListRows.count
 
-        Dim mainVal As String
         mainVal = Trim(tbl.DataBodyRange(r, parentCol).Value)
 
         If mainVal <> "" Then
 
-            Dim entry As String
-            entry = mainVal
+            ' A new role/parent starts here — flush whatever we were
+            ' accumulating for the previous one first
+            If haveEntry Then
+                FlushNestedEntry mSecItems(secIdx), currentMain, currentSubs
+            End If
 
+<<<<<<< Updated upstream
             For c = parentCol + 1 To lastBulletCol
                 Dim subVal As String
                 subVal = Trim(tbl.DataBodyRange(r, c).Value)
@@ -1206,9 +1221,47 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
 
             mSecItems(secIdx).Add entry
 
+=======
+            currentMain = mainVal
+            currentSubs = ""
+            haveEntry = True
+
+        End If
+
+        ' Collect this row's helper-column value(s) into the CURRENT entry -
+        ' whether this row started a new item or is a continuation row
+        ' where the parent cell was left blank
+        If haveEntry Then
+            For c = parentCol + 1 To lastBulletCol
+                Dim subVal As String
+                subVal = Trim(tbl.DataBodyRange(r, c).Value)
+                If subVal <> "" Then
+                    If currentSubs = "" Then
+                        currentSubs = subVal
+                    Else
+                        currentSubs = currentSubs & "~" & subVal
+                    End If
+                End If
+            Next c
+>>>>>>> Stashed changes
         End If
 
     Next r
+
+    ' Flush the final accumulated entry
+    If haveEntry Then
+        FlushNestedEntry mSecItems(secIdx), currentMain, currentSubs
+    End If
+
+End Sub
+
+Private Sub FlushNestedEntry(ByVal col As Collection, ByVal mainVal As String, ByVal subs As String)
+
+    Dim entry As String
+    entry = mainVal
+    If subs <> "" Then entry = entry & "|" & subs
+
+    col.Add entry
 
 End Sub
 

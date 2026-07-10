@@ -50,7 +50,7 @@ Private Const HEADING_SIZE As Long = 18
 Private Const BODY_FONT As String = "Lato"
 Private Const BODY_SIZE As Long = 12
 
-Private Const PROCESS_INDENT As Long = 40    ' Process Steps helper-column indent (points)
+Private Const PROCESS_INDENT As Long = 36    ' Process Steps helper-column indent (points)
 Private Const ROLE_INDENT As Long = 24       ' Roles helper-column indent (points)
 
 ' --- headers/footers ---
