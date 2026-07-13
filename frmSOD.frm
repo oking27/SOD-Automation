@@ -127,6 +127,264 @@ ErrHandler:
 End Sub
 
 '====================================================
+' REORDERING
+'====================================================
+
+Private Function SwapCollectionItems(ByVal col As Collection, _
+                                      ByVal idx1 As Long, ByVal idx2 As Long) As Collection
+
+    Dim newCol As New Collection
+    Dim arr() As Variant
+    Dim i As Long
+
+    ReDim arr(1 To col.count)
+    For i = 1 To col.count
+        arr(i) = col(i)
+    Next i
+
+    Dim tmp As Variant
+    tmp = arr(idx1)
+    arr(idx1) = arr(idx2)
+    arr(idx2) = tmp
+
+    For i = 1 To col.count
+        newCol.Add arr(i)
+    Next i
+
+    Set SwapCollectionItems = newCol
+
+End Function
+
+Private Sub RefreshItemsDisplay()
+
+    On Error GoTo ErrHandler
+
+    lstItems.Clear
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If mSecTypes(mCurrentSection) = TYPE_NESTED Then
+            lstItems.AddItem Split(mSecItems(mCurrentSection)(i), "|")(0)
+        Else
+            lstItems.AddItem mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "RefreshItemsDisplay"
+
+End Sub
+
+Private Sub btnItemUp_Click()
+
+    On Error GoTo ErrHandler
+
+    Dim selIdx As Long
+    selIdx = lstItems.ListIndex
+    If selIdx <= 0 Then Exit Sub
+
+    PushUndo
+
+    Dim itemIdx As Long
+    itemIdx = selIdx + 1
+    Set mSecItems(mCurrentSection) = SwapCollectionItems(mSecItems(mCurrentSection), itemIdx, itemIdx - 1)
+
+    RefreshItemsDisplay
+    lstItems.ListIndex = selIdx - 1
+    If mSecTypes(mCurrentSection) = TYPE_NESTED Then RefreshSubItems
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnItemUp_Click"
+
+End Sub
+
+Private Sub btnItemDown_Click()
+
+    On Error GoTo ErrHandler
+
+    Dim selIdx As Long
+    selIdx = lstItems.ListIndex
+    If selIdx < 0 Or selIdx >= lstItems.ListCount - 1 Then Exit Sub
+
+    PushUndo
+
+    Dim itemIdx As Long
+    itemIdx = selIdx + 1
+    Set mSecItems(mCurrentSection) = SwapCollectionItems(mSecItems(mCurrentSection), itemIdx, itemIdx + 1)
+
+    RefreshItemsDisplay
+    lstItems.ListIndex = selIdx + 1
+    If mSecTypes(mCurrentSection) = TYPE_NESTED Then RefreshSubItems
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnItemDown_Click"
+
+End Sub
+
+Private Sub btnSubItemUp_Click()
+
+    On Error GoTo ErrHandler
+
+    Dim parentIdx As Long
+    parentIdx = lstItems.ListIndex
+    If parentIdx < 0 Then Exit Sub
+
+    Dim subIdx As Long
+    subIdx = lstSubItems.ListIndex
+    If subIdx <= 0 Then Exit Sub
+
+    PushUndo
+
+    Dim itemIdx As Long
+    itemIdx = parentIdx + 1
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+    If UBound(parts) < 1 Then Exit Sub
+
+    Dim subs() As String
+    subs = Split(parts(1), "~")
+
+    Dim tmp As String
+    tmp = subs(subIdx)
+    subs(subIdx) = subs(subIdx - 1)
+    subs(subIdx - 1) = tmp
+
+    Dim newStr As String
+    newStr = parts(0) & "|" & Join(subs, "~")
+
+    Dim newCol As New Collection
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If i = itemIdx Then
+            newCol.Add newStr
+        Else
+            newCol.Add mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+    Set mSecItems(mCurrentSection) = newCol
+
+    RefreshSubItems
+    lstSubItems.ListIndex = subIdx - 1
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnSubItemUp_Click"
+
+End Sub
+
+Private Sub btnSubItemDown_Click()
+
+    On Error GoTo ErrHandler
+
+    Dim parentIdx As Long
+    parentIdx = lstItems.ListIndex
+    If parentIdx < 0 Then Exit Sub
+
+    Dim subIdx As Long
+    subIdx = lstSubItems.ListIndex
+    If subIdx < 0 Or subIdx >= lstSubItems.ListCount - 1 Then Exit Sub
+
+    PushUndo
+
+    Dim itemIdx As Long
+    itemIdx = parentIdx + 1
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+    If UBound(parts) < 1 Then Exit Sub
+
+    Dim subs() As String
+    subs = Split(parts(1), "~")
+
+    Dim tmp As String
+    tmp = subs(subIdx)
+    subs(subIdx) = subs(subIdx + 1)
+    subs(subIdx + 1) = tmp
+
+    Dim newStr As String
+    newStr = parts(0) & "|" & Join(subs, "~")
+
+    Dim newCol As New Collection
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If i = itemIdx Then
+            newCol.Add newStr
+        Else
+            newCol.Add mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+    Set mSecItems(mCurrentSection) = newCol
+
+    RefreshSubItems
+    lstSubItems.ListIndex = subIdx + 1
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnSubItemDown_Click"
+
+End Sub
+
+Private Sub btnRowUp_Click()
+
+    On Error GoTo ErrHandler
+
+    Dim selIdx As Long
+    selIdx = lstRows.ListIndex
+    If selIdx <= 0 Then Exit Sub
+
+    SaveRowEditor
+    PushUndo
+
+    Dim rowIdx As Long
+    rowIdx = selIdx + 1
+    Set mSecItems(mCurrentSection) = SwapCollectionItems(mSecItems(mCurrentSection), rowIdx, rowIdx - 1)
+
+    RefreshRowList mCurrentSection
+    lstRows.ListIndex = selIdx - 1
+    OpenRowEditor selIdx - 1
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnRowUp_Click"
+
+End Sub
+
+Private Sub btnRowDown_Click()
+
+    On Error GoTo ErrHandler
+
+    Dim selIdx As Long
+    selIdx = lstRows.ListIndex
+    If selIdx < 0 Or selIdx >= lstRows.ListCount - 1 Then Exit Sub
+
+    SaveRowEditor
+    PushUndo
+
+    Dim rowIdx As Long
+    rowIdx = selIdx + 1
+    Set mSecItems(mCurrentSection) = SwapCollectionItems(mSecItems(mCurrentSection), rowIdx, rowIdx + 1)
+
+    RefreshRowList mCurrentSection
+    lstRows.ListIndex = selIdx + 1
+    OpenRowEditor selIdx + 1
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnRowDown_Click"
+
+End Sub
+
+'====================================================
 ' CENTRAL ERROR HANDLER
 ' Every event handler and data function routes runtime
 ' errors here instead of letting VBA show its own dialog
@@ -282,9 +540,11 @@ Private Sub ShowSection(ByVal idx As Long)
     mEditingItemIdx = 0
     mEditingSubIdx = -1
     btnAddItem.Caption = "+ Add"
-    btnRemoveItem.Caption = "— Remove"
+    btnRemoveItem.Caption = "– Remove"
+    btnEditItem.Caption = "Edit"
     btnAddSubItem.Caption = "+ Add"
-    btnRemoveSubItem.Caption = "— Remove"
+    btnRemoveSubItem.Caption = "– Remove"
+    btnEditSubItem.Caption = "Edit"
 
     lblSectionTitle.Caption = mSecNames(idx)
 
@@ -787,30 +1047,76 @@ Private Sub btnEditItem_Click()
 
     On Error GoTo ErrHandler
 
-    Dim selIdx As Long
-    selIdx = lstItems.ListIndex
+    If mEditingItemIdx > 0 Then
 
-    If selIdx < 0 Then
-        MsgBox "Select an item to edit.", vbExclamation
-        Exit Sub
-    End If
+        ' Already editing - this click means CONFIRM
+        Dim newItem As String
+        newItem = Trim(txtItem.Text)
 
-    Dim itemIdx As Long
-    itemIdx = selIdx + 1
+        If newItem = "" Then
+            MsgBox "Please type an item before confirming.", vbExclamation
+            Exit Sub
+        End If
 
-    Dim current As String
-    If mSecTypes(mCurrentSection) = TYPE_NESTED Then
-        current = Split(mSecItems(mCurrentSection)(itemIdx), "|")(0)
+        PushUndo
+
+        Dim newCol As New Collection
+        Dim i As Long
+        For i = 1 To mSecItems(mCurrentSection).count
+            If i = mEditingItemIdx Then
+                If mSecTypes(mCurrentSection) = TYPE_NESTED Then
+                    Dim parts() As String
+                    parts = Split(mSecItems(mCurrentSection)(i), "|")
+                    parts(0) = newItem
+                    newCol.Add Join(parts, "|")
+                Else
+                    newCol.Add newItem
+                End If
+            Else
+                newCol.Add mSecItems(mCurrentSection)(i)
+            End If
+        Next i
+        Set mSecItems(mCurrentSection) = newCol
+
+        Dim savedIdx As Long
+        savedIdx = mEditingItemIdx
+
+        ExitItemEditMode
+
+        RefreshItemsDisplay
+        lstItems.ListIndex = savedIdx - 1
+        If mSecTypes(mCurrentSection) = TYPE_NESTED Then RefreshSubItems
+
     Else
-        current = mSecItems(mCurrentSection)(itemIdx)
-    End If
 
-    ' Load the text into the entry box and switch into edit mode
-    txtItem.Text = current
-    txtItem.SetFocus
-    mEditingItemIdx = itemIdx
-    btnAddItem.Caption = "Confirm"
-    btnRemoveItem.Caption = "Cancel"
+        ' Not editing - ENTER edit mode
+        Dim selIdx As Long
+        selIdx = lstItems.ListIndex
+
+        If selIdx < 0 Then
+            MsgBox "Select an item to edit.", vbExclamation
+            Exit Sub
+        End If
+
+        Dim itemIdx As Long
+        itemIdx = selIdx + 1
+
+        Dim current As String
+        If mSecTypes(mCurrentSection) = TYPE_NESTED Then
+            current = Split(mSecItems(mCurrentSection)(itemIdx), "|")(0)
+        Else
+            current = mSecItems(mCurrentSection)(itemIdx)
+        End If
+
+        txtItem.Text = current
+        txtItem.SetFocus
+
+        mEditingItemIdx = itemIdx
+        btnEditItem.Caption = "Confirm"
+        btnAddItem.Caption = "Move Up"
+        btnRemoveItem.Caption = "Move Down"
+
+    End If
 
     Exit Sub
 
@@ -819,50 +1125,188 @@ ErrHandler:
 
 End Sub
 
+Private Sub ExitItemEditMode()
+
+    mEditingItemIdx = 0
+    btnEditItem.Caption = "Edit"
+    btnAddItem.Caption = "+ Add"
+    btnRemoveItem.Caption = "– Remove"
+    txtItem.Text = ""
+
+End Sub
+
+Private Sub SaveEditedItemTextInPlace()
+
+    Dim newItem As String
+    newItem = Trim(txtItem.Text)
+    If newItem = "" Then Exit Sub
+
+    Dim newCol As New Collection
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If i = mEditingItemIdx Then
+            If mSecTypes(mCurrentSection) = TYPE_NESTED Then
+                Dim parts() As String
+                parts = Split(mSecItems(mCurrentSection)(i), "|")
+                parts(0) = newItem
+                newCol.Add Join(parts, "|")
+            Else
+                newCol.Add newItem
+            End If
+        Else
+            newCol.Add mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+    Set mSecItems(mCurrentSection) = newCol
+
+End Sub
+
 Private Sub btnEditSubItem_Click()
 
     On Error GoTo ErrHandler
 
-    Dim parentIdx As Long
-    parentIdx = lstItems.ListIndex
+    If mEditingSubIdx >= 0 Then
 
-    If parentIdx < 0 Then
-        MsgBox "Select a parent item first.", vbExclamation
-        Exit Sub
+        Dim parentIdx As Long
+        parentIdx = lstItems.ListIndex
+        If parentIdx < 0 Then Exit Sub
+
+        Dim itemIdx As Long
+        itemIdx = parentIdx + 1
+
+        Dim newSub As String
+        newSub = Trim(txtSubItem.Text)
+
+        If newSub = "" Then
+            MsgBox "Please type a sub-item before confirming.", vbExclamation
+            Exit Sub
+        End If
+
+        PushUndo
+
+        Dim parts() As String
+        parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+
+        Dim subs() As String
+        If UBound(parts) >= 1 Then
+            subs = Split(parts(1), "~")
+        Else
+            ReDim subs(0)
+        End If
+
+        subs(mEditingSubIdx) = newSub
+
+        Dim newStr As String
+        newStr = parts(0) & "|" & Join(subs, "~")
+
+        Dim newCol As New Collection
+        Dim i As Long
+        For i = 1 To mSecItems(mCurrentSection).count
+            If i = itemIdx Then
+                newCol.Add newStr
+            Else
+                newCol.Add mSecItems(mCurrentSection)(i)
+            End If
+        Next i
+        Set mSecItems(mCurrentSection) = newCol
+
+        Dim savedSubIdx As Long
+        savedSubIdx = mEditingSubIdx
+
+        ExitSubItemEditMode
+
+        RefreshSubItems
+        lstSubItems.ListIndex = savedSubIdx
+
+    Else
+
+        Dim parentIdx2 As Long
+        parentIdx2 = lstItems.ListIndex
+
+        If parentIdx2 < 0 Then
+            MsgBox "Select a parent item first.", vbExclamation
+            Exit Sub
+        End If
+
+        Dim subIdx As Long
+        subIdx = lstSubItems.ListIndex
+
+        If subIdx < 0 Then
+            MsgBox "Select a sub-item to edit.", vbExclamation
+            Exit Sub
+        End If
+
+        Dim itemIdx2 As Long
+        itemIdx2 = parentIdx2 + 1
+
+        Dim parts2() As String
+        parts2 = Split(mSecItems(mCurrentSection)(itemIdx2), "|")
+
+        If UBound(parts2) < 1 Then Exit Sub
+
+        Dim subs2() As String
+        subs2 = Split(parts2(1), "~")
+
+        If subIdx > UBound(subs2) Then Exit Sub
+
+        txtSubItem.Text = subs2(subIdx)
+        txtSubItem.SetFocus
+
+        mEditingSubIdx = subIdx
+        btnEditSubItem.Caption = "Confirm"
+        btnAddSubItem.Caption = "Move Up"
+        btnRemoveSubItem.Caption = "Move Down"
+
     End If
-
-    Dim subIdx As Long
-    subIdx = lstSubItems.ListIndex
-
-    If subIdx < 0 Then
-        MsgBox "Select a sub-item to edit.", vbExclamation
-        Exit Sub
-    End If
-
-    Dim itemIdx As Long
-    itemIdx = parentIdx + 1
-
-    Dim parts() As String
-    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
-
-    If UBound(parts) < 1 Then Exit Sub
-
-    Dim subs() As String
-    subs = Split(parts(1), "~")
-
-    If subIdx > UBound(subs) Then Exit Sub
-
-    ' Load full (untruncated) text into the entry box
-    txtSubItem.Text = subs(subIdx)
-    txtSubItem.SetFocus
-    mEditingSubIdx = subIdx
-    btnAddSubItem.Caption = "Confirm"
-    btnRemoveSubItem.Caption = "Cancel"
 
     Exit Sub
 
 ErrHandler:
     HandleFormError "btnEditSubItem_Click"
+
+End Sub
+
+Private Sub ExitSubItemEditMode()
+
+    mEditingSubIdx = -1
+    btnEditSubItem.Caption = "Edit"
+    btnAddSubItem.Caption = "+ Add"
+    btnRemoveSubItem.Caption = "– Remove"
+    txtSubItem.Text = ""
+
+End Sub
+
+Private Sub SaveEditedSubItemTextInPlace(ByVal itemIdx As Long)
+
+    Dim newSub As String
+    newSub = Trim(txtSubItem.Text)
+    If newSub = "" Then Exit Sub
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+
+    Dim subs() As String
+    If UBound(parts) >= 1 Then
+        subs = Split(parts(1), "~")
+    Else
+        ReDim subs(0)
+    End If
+
+    subs(mEditingSubIdx) = newSub
+
+    Dim newStr As String
+    newStr = parts(0) & "|" & Join(subs, "~")
+
+    Dim newCol As New Collection
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If i = itemIdx Then
+            newCol.Add newStr
+        Else
+            newCol.Add mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+    Set mSecItems(mCurrentSection) = newCol
 
 End Sub
 
@@ -970,49 +1414,34 @@ Private Sub btnAddItem_Click()
 
     On Error GoTo ErrHandler
 
-    Dim newItem As String
-    newItem = Trim(txtItem.Text)
-
-    If newItem = "" Then
-        MsgBox "Please type an item before adding.", vbExclamation
-        Exit Sub
-    End If
-
     If mEditingItemIdx > 0 Then
 
-        ' SAVE mode - update the existing item in place
+        ' EDIT MODE: this button is "Move Up"
+        If mEditingItemIdx <= 1 Then Exit Sub
+
+        SaveEditedItemTextInPlace
         PushUndo
 
-        Dim newCol As New Collection
-        Dim i As Long
-        For i = 1 To mSecItems(mCurrentSection).count
-            If i = mEditingItemIdx Then
-                If mSecTypes(mCurrentSection) = TYPE_NESTED Then
-                    Dim parts() As String
-                    parts = Split(mSecItems(mCurrentSection)(i), "|")
-                    parts(0) = newItem
-                    newCol.Add Join(parts, "|")
-                Else
-                    newCol.Add newItem
-                End If
-            Else
-                newCol.Add mSecItems(mCurrentSection)(i)
-            End If
-        Next i
-        Set mSecItems(mCurrentSection) = newCol
+        Set mSecItems(mCurrentSection) = _
+            SwapCollectionItems(mSecItems(mCurrentSection), mEditingItemIdx, mEditingItemIdx - 1)
+
+        mEditingItemIdx = mEditingItemIdx - 1
 
         RefreshItemsDisplay
         lstItems.ListIndex = mEditingItemIdx - 1
-
-        ' Exit edit mode
-        mEditingItemIdx = 0
-        btnAddItem.Caption = "+ Add"
-        btnRemoveItem.Caption = "— Remove"
-        txtItem.Text = ""
+        txtItem.SetFocus
 
     Else
 
-        ' ADD mode - new item, same as before
+        ' NORMAL MODE: standard Add
+        Dim newItem As String
+        newItem = Trim(txtItem.Text)
+
+        If newItem = "" Then
+            MsgBox "Please type an item before adding.", vbExclamation
+            Exit Sub
+        End If
+
         mSecItems(mCurrentSection).Add newItem
         lstItems.AddItem newItem
         txtItem.Text = ""
@@ -1030,37 +1459,49 @@ Private Sub btnRemoveItem_Click()
 
     On Error GoTo ErrHandler
 
-    ' CANCEL path - must be checked first, and must never touch PushUndo/data
     If mEditingItemIdx > 0 Then
-        mEditingItemIdx = 0
-        btnAddItem.Caption = "+ Add"
-        btnRemoveItem.Caption = "— Remove"
-        txtItem.Text = ""
-        Exit Sub
-    End If
 
-    ' REMOVE path - only reached if we were NOT editing
-    Dim selIdx As Long
-    selIdx = lstItems.ListIndex
+        ' EDIT MODE: this button is "Move Down"
+        If mEditingItemIdx >= mSecItems(mCurrentSection).count Then Exit Sub
 
-    If selIdx < 0 Then
-        MsgBox "Select an item to remove.", vbExclamation
-        Exit Sub
-    End If
+        SaveEditedItemTextInPlace
+        PushUndo
 
-    PushUndo
+        Set mSecItems(mCurrentSection) = _
+            SwapCollectionItems(mSecItems(mCurrentSection), mEditingItemIdx, mEditingItemIdx + 1)
 
-    Dim i As Long
-    Dim newCol As New Collection
-    For i = 1 To mSecItems(mCurrentSection).count
-        If i <> selIdx + 1 Then
-            newCol.Add mSecItems(mCurrentSection)(i)
+        mEditingItemIdx = mEditingItemIdx + 1
+
+        RefreshItemsDisplay
+        lstItems.ListIndex = mEditingItemIdx - 1
+        txtItem.SetFocus
+
+    Else
+
+        ' NORMAL MODE: standard Remove
+        Dim selIdx As Long
+        selIdx = lstItems.ListIndex
+
+        If selIdx < 0 Then
+            MsgBox "Select an item to remove.", vbExclamation
+            Exit Sub
         End If
-    Next i
-    Set mSecItems(mCurrentSection) = newCol
 
-    lstItems.RemoveItem selIdx
-    lstSubItems.Clear
+        PushUndo
+
+        Dim i As Long
+        Dim newCol As New Collection
+        For i = 1 To mSecItems(mCurrentSection).count
+            If i <> selIdx + 1 Then
+                newCol.Add mSecItems(mCurrentSection)(i)
+            End If
+        Next i
+        Set mSecItems(mCurrentSection) = newCol
+
+        lstItems.RemoveItem selIdx
+        lstSubItems.Clear
+
+    End If
 
     Exit Sub
 
@@ -1085,36 +1526,25 @@ Private Sub btnAddSubItem_Click()
         Exit Sub
     End If
 
-    Dim newSub As String
-    newSub = Trim(txtSubItem.Text)
-
-    If newSub = "" Then
-        MsgBox "Please type a sub-item before adding.", vbExclamation
-        Exit Sub
-    End If
-
     Dim itemIdx As Long
     itemIdx = selIdx + 1
 
-    Dim current As String
-    current = mSecItems(mCurrentSection)(itemIdx)
+    If mEditingSubIdx >= 0 Then
 
-    Dim parts() As String
-    parts = Split(current, "|")
+        If mEditingSubIdx <= 0 Then Exit Sub
 
-    If mEditingSubIdx >= 0 And mEditingSubIdx <> -1 And btnAddSubItem.Caption = "Save Changes" Then
-
-        ' SAVE mode - replace the specific sub-item in place
+        SaveEditedSubItemTextInPlace itemIdx
         PushUndo
 
+        Dim parts() As String
+        parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
         Dim subs() As String
-        If UBound(parts) >= 1 Then
-            subs = Split(parts(1), "~")
-        Else
-            ReDim subs(0)
-        End If
+        subs = Split(parts(1), "~")
 
-        subs(mEditingSubIdx) = newSub
+        Dim tmp As String
+        tmp = subs(mEditingSubIdx)
+        subs(mEditingSubIdx) = subs(mEditingSubIdx - 1)
+        subs(mEditingSubIdx - 1) = tmp
 
         Dim newStr As String
         newStr = parts(0) & "|" & Join(subs, "~")
@@ -1130,21 +1560,32 @@ Private Sub btnAddSubItem_Click()
         Next i
         Set mSecItems(mCurrentSection) = newCol
 
+        mEditingSubIdx = mEditingSubIdx - 1
+
         RefreshSubItems
         lstSubItems.ListIndex = mEditingSubIdx
-
-        mEditingSubIdx = -1
-        btnAddSubItem.Caption = "+ Add"
-        btnRemoveSubItem.Caption = "— Remove"
-        txtSubItem.Text = ""
+        txtSubItem.SetFocus
 
     Else
 
-        ' ADD mode - append new sub-item, same as before
-        If UBound(parts) = 0 Then
-            current = parts(0) & "|" & newSub
+        Dim newSub As String
+        newSub = Trim(txtSubItem.Text)
+
+        If newSub = "" Then
+            MsgBox "Please type a sub-item before adding.", vbExclamation
+            Exit Sub
+        End If
+
+        Dim current As String
+        current = mSecItems(mCurrentSection)(itemIdx)
+
+        Dim parts2() As String
+        parts2 = Split(current, "|")
+
+        If UBound(parts2) = 0 Then
+            current = parts2(0) & "|" & newSub
         Else
-            current = parts(0) & "|" & parts(1) & "~" & newSub
+            current = parts2(0) & "|" & parts2(1) & "~" & newSub
         End If
 
         Dim newCol2 As New Collection
@@ -1178,72 +1619,106 @@ Private Sub btnRemoveSubItem_Click()
 
     On Error GoTo ErrHandler
 
-    ' CANCEL path - must be checked first, and must never touch PushUndo/data
-    If mEditingSubIdx >= 0 And btnAddSubItem.Caption = "Save Changes" Then
-        mEditingSubIdx = -1
-        btnAddSubItem.Caption = "+ Add"
-        btnRemoveSubItem.Caption = "— Remove"
-        txtSubItem.Text = ""
-        Exit Sub
-    End If
-
-    ' REMOVE path - only reached if we were NOT editing
     Dim parentIdx As Long
     parentIdx = lstItems.ListIndex
-
     If parentIdx < 0 Then Exit Sub
-
-    Dim subIdx As Long
-    subIdx = lstSubItems.ListIndex
-
-    If subIdx < 0 Then
-        MsgBox "Select a sub-item to remove.", vbExclamation
-        Exit Sub
-    End If
-
-    PushUndo
 
     Dim itemIdx As Long
     itemIdx = parentIdx + 1
 
-    Dim parts() As String
-    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+    If mEditingSubIdx >= 0 Then
 
-    Dim newStr As String
-    newStr = parts(0)
-
-    If UBound(parts) > 0 Then
-
+        Dim parts() As String
+        parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
         Dim subs() As String
         subs = Split(parts(1), "~")
 
-        Dim newSubs As String
+        If mEditingSubIdx >= UBound(subs) Then Exit Sub
+
+        SaveEditedSubItemTextInPlace itemIdx
+        PushUndo
+
+        parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+        subs = Split(parts(1), "~")
+
+        Dim tmp As String
+        tmp = subs(mEditingSubIdx)
+        subs(mEditingSubIdx) = subs(mEditingSubIdx + 1)
+        subs(mEditingSubIdx + 1) = tmp
+
+        Dim newStr As String
+        newStr = parts(0) & "|" & Join(subs, "~")
+
+        Dim newCol As New Collection
         Dim i As Long
-        For i = 0 To UBound(subs)
-            If i <> subIdx Then
-                If newSubs = "" Then
-                    newSubs = subs(i)
-                Else
-                    newSubs = newSubs & "~" & subs(i)
-                End If
+        For i = 1 To mSecItems(mCurrentSection).count
+            If i = itemIdx Then
+                newCol.Add newStr
+            Else
+                newCol.Add mSecItems(mCurrentSection)(i)
             End If
         Next i
+        Set mSecItems(mCurrentSection) = newCol
 
-        If newSubs <> "" Then newStr = newStr & "|" & newSubs
+        mEditingSubIdx = mEditingSubIdx + 1
+
+        RefreshSubItems
+        lstSubItems.ListIndex = mEditingSubIdx
+        txtSubItem.SetFocus
+
+    Else
+
+        Dim subIdx As Long
+        subIdx = lstSubItems.ListIndex
+
+        If subIdx < 0 Then
+            MsgBox "Select a sub-item to remove.", vbExclamation
+            Exit Sub
+        End If
+
+        PushUndo
+
+        Dim parts2() As String
+        parts2 = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+
+        Dim newStr2 As String
+        newStr2 = parts2(0)
+
+        If UBound(parts2) > 0 Then
+
+            Dim subs2() As String
+            subs2 = Split(parts2(1), "~")
+
+            Dim newSubs As String
+            Dim j As Long
+            For j = 0 To UBound(subs2)
+                If j <> subIdx Then
+                    If newSubs = "" Then
+                        newSubs = subs2(j)
+                    Else
+                        newSubs = newSubs & "~" & subs2(j)
+                    End If
+                End If
+            Next j
+
+            If newSubs <> "" Then newStr2 = newStr2 & "|" & newSubs
+
+        End If
+
+        Dim newCol2 As New Collection
+        Dim k As Long
+        For k = 1 To mSecItems(mCurrentSection).count
+            If k = itemIdx Then
+                newCol2.Add newStr2
+            Else
+                newCol2.Add mSecItems(mCurrentSection)(k)
+            End If
+        Next k
+        Set mSecItems(mCurrentSection) = newCol2
+
+        lstSubItems.RemoveItem subIdx
 
     End If
-
-    Dim newCol As New Collection
-    For i = 1 To mSecItems(mCurrentSection).count
-        If i = itemIdx Then
-            newCol.Add newStr
-        Else
-            newCol.Add mSecItems(mCurrentSection)(i)
-        End If
-    Next i
-    Set mSecItems(mCurrentSection) = newCol
-
-    lstSubItems.RemoveItem subIdx
 
     Exit Sub
 
