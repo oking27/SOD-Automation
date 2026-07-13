@@ -35,42 +35,115 @@ Private Const SEC_RESOURCES As String = "Additional Resources"
 Private Const TYPE_PLAIN As String = "PLAIN"       ' single TextBox
 Private Const TYPE_NESTED As String = "NESTED"     ' items + sub-items
 Private Const TYPE_LIST As String = "LIST"         ' items only, no sub-items
+Private Const TYPE_TABLE As String = "TABLE"       ' column count + rows
 
 ' Data store: parallel arrays indexed by section
 Private mSecNames() As String      ' display name
-Private mSecTypes() As String      ' TYPE_PLAIN / TYPE_NESTED / TYPE_LIST
+Private mSecTypes() As String      ' TYPE_PLAIN / TYPE_NESTED / TYPE_LIST / TYPE_TABLE
 Private mSecCount As Long
 
 ' Each section's data stored as pipe-delimited strings
-' PLAIN: mSecData(i) = full text
-' LIST:  mSecItems(i) = Collection of strings
-' NESTED: mSecItems(i) = Collection of "item|sub1|sub2|sub3..."
+' PLAIN:  mSecData(i) = full text
+' LIST:   mSecItems(i) = Collection of strings
+' NESTED: mSecItems(i) = Collection of "item|sub1~sub2~sub3..."
+' TABLE:  mSecItems(i) = Collection of "col1val|col2val|col3val"
+'         mSecCols(i) stores the column count as a tilde-delimited placeholder string
 Private mSecData() As String
 Private mSecItems() As Collection
+Private mSecCols() As String
 
 Private mCurrentSection As Long    ' 1-based index of selected section
 Private mLoading As Boolean        ' suppress change events during load
 
-' Table row data stored as pipe-delimited strings, one entry per row
-' mSecItems(i) is reused: each item = "col1val|col2val|col3val"
-' mSecCols(i) stores column header names as tilde-delimited string
-Private mSecCols() As String
+Private mEditingItemIdx As Long      ' 0 = not editing, otherwise 1-based item index
+Private mEditingSubIdx As Long       ' 0 = not editing, otherwise 0-based sub-item index
 
-Private Const TYPE_TABLE As String = "TABLE"
+'====================================================
+' UNDO (single-level, scoped to the section it happened in)
+'====================================================
 
-Private Sub fraContent_Click()
+Private mUndoAvailable As Boolean
+Private mUndoSecIdx As Long
+Private mUndoItems As Collection
+Private mUndoData As String
+Private mUndoCols As String
+
+Private Sub PushUndo()
+
+    On Error GoTo ErrHandler
+
+    mUndoSecIdx = mCurrentSection
+    Set mUndoItems = CloneCollection(mSecItems(mCurrentSection))
+    mUndoData = mSecData(mCurrentSection)
+    mUndoCols = mSecCols(mCurrentSection)
+    mUndoAvailable = True
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "PushUndo"
 
 End Sub
 
-Private Sub Frame1_Click()
+Private Function CloneCollection(ByVal src As Collection) As Collection
+
+    Dim result As New Collection
+    Dim i As Long
+    For i = 1 To src.count
+        result.Add src(i)
+    Next i
+    Set CloneCollection = result
+
+End Function
+
+Private Sub btnUndo_Click()
+
+    On Error GoTo ErrHandler
+
+    If Not mUndoAvailable Then
+        MsgBox "Nothing to undo.", vbInformation
+        Exit Sub
+    End If
+
+    If mUndoSecIdx <> mCurrentSection Then
+        MsgBox "The last change was in '" & mSecNames(mUndoSecIdx) & _
+               "'. Switch to that section to undo it.", vbExclamation
+        Exit Sub
+    End If
+
+    Set mSecItems(mCurrentSection) = CloneCollection(mUndoItems)
+    mSecData(mCurrentSection) = mUndoData
+    mSecCols(mCurrentSection) = mUndoCols
+
+    mUndoAvailable = False
+
+    ShowSection mCurrentSection
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnUndo_Click"
+
+End Sub
+
+'====================================================
+' CENTRAL ERROR HANDLER
+' Every event handler and data function routes runtime
+' errors here instead of letting VBA show its own dialog
+' and potentially leave the form in a broken state.
+'====================================================
+
+Private Sub HandleFormError(ByVal procName As String)
+
+    MsgBox "Something went wrong in '" & procName & "'." & vbCrLf & vbCrLf & _
+           "Error " & Err.Number & ": " & Err.Description & vbCrLf & vbCrLf & _
+           "Your other entries are safe. Please try again, and if this repeats, " & _
+           "note down what you were doing and report it.", _
+           vbExclamation, "SOD Form - Error"
 
 End Sub
 
 Private Sub fraRowEditor_Click()
-
-End Sub
-
-Private Sub lstSubItems_Click()
 
 End Sub
 
@@ -80,29 +153,33 @@ End Sub
 
 Private Sub UserForm_Initialize()
 
+    On Error GoTo ErrHandler
+
     mLoading = True
+    mEditingItemIdx = 0
+    mEditingSubIdx = -1
 
-    ' Build default section list
     InitSections
-
-    ' Populate the ListBox
     RefreshSectionList
-
-    ' Load existing sheet data if present
     LoadFromSheet
 
-    ' Select first section
-    If mSecCount > 0 Then
-        lstSections.ListIndex = 0
-        mCurrentSection = 1
-        ShowSection 1
-    End If
+    mCurrentSection = 1
+    lstSections.ListIndex = 0
+    ShowSection 1
 
     mLoading = False
+
+    Exit Sub
+
+ErrHandler:
+    mLoading = False
+    HandleFormError "UserForm_Initialize"
 
 End Sub
 
 Private Sub InitSections()
+
+    On Error GoTo ErrHandler
 
     mSecCount = 8
     ReDim mSecNames(1 To mSecCount)
@@ -136,6 +213,11 @@ Private Sub InitSections()
         Set mSecItems(i) = New Collection
     Next i
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "InitSections"
+
 End Sub
 
 '====================================================
@@ -143,6 +225,8 @@ End Sub
 '====================================================
 
 Private Sub RefreshSectionList()
+
+    On Error GoTo ErrHandler
 
     Dim sel As Long
     sel = lstSections.ListIndex
@@ -158,31 +242,49 @@ Private Sub RefreshSectionList()
         lstSections.ListIndex = sel
     End If
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "RefreshSectionList"
+
 End Sub
 
 Private Sub lstSections_Click()
 
-    If mLoading Then Exit Sub
+    On Error GoTo ErrHandler
 
-    ' Save current section before switching
-    If mCurrentSection > 0 Then
-        SaveCurrentSection
-    End If
+    If mLoading Then Exit Sub
+    If lstSections.ListIndex < 0 Then Exit Sub
+
+    SaveCurrentSection
 
     mCurrentSection = lstSections.ListIndex + 1
     ShowSection mCurrentSection
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "lstSections_Click"
+
 End Sub
 
 '====================================================
-' SHOW SECTION — switches the right panel content
+' SHOW SECTION - switches the right panel content
 '====================================================
 
 Private Sub ShowSection(ByVal idx As Long)
 
+    On Error GoTo ErrHandler
+
     If idx < 1 Or idx > mSecCount Then Exit Sub
 
     mLoading = True
+    mEditingItemIdx = 0
+    mEditingSubIdx = -1
+    btnAddItem.Caption = "+ Add"
+    btnRemoveItem.Caption = "— Remove"
+    btnAddSubItem.Caption = "+ Add"
+    btnRemoveSubItem.Caption = "— Remove"
 
     lblSectionTitle.Caption = mSecNames(idx)
 
@@ -206,70 +308,258 @@ Private Sub ShowSection(ByVal idx As Long)
 
     mLoading = False
 
+    Exit Sub
+
+ErrHandler:
+    mLoading = False
+    HandleFormError "ShowSection"
+
 End Sub
+
+Private Sub HideAllControls()
+
+    On Error GoTo ErrHandler
+
+    txtContent.Visible = False
+    lstItems.Visible = False
+    btnAddItem.Visible = False
+    btnRemoveItem.Visible = False
+    btnEditItem.Visible = False
+    txtItem.Visible = False
+    lblSubItems.Visible = False
+    lstSubItems.Visible = False
+    btnAddSubItem.Visible = False
+    btnRemoveSubItem.Visible = False
+    btnEditSubItem.Visible = False
+    txtSubItem.Visible = False
+
+    lblColCount.Visible = False
+    spnColCount.Visible = False
+    lblRows.Visible = False
+    lstRows.Visible = False
+    btnAddRow.Visible = False
+    btnRemoveRow.Visible = False
+    lblRowEditor.Visible = False
+    fraRowEditor.Visible = False
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "HideAllControls"
+
+End Sub
+
+
+Private Sub ShowPlainSection(ByVal idx As Long)
+
+    On Error GoTo ErrHandler
+
+    txtContent.Text = mSecData(idx)
+    txtContent.Visible = True
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ShowPlainSection"
+
+End Sub
+
+Private Sub ShowListSection(ByVal idx As Long)
+
+    On Error GoTo ErrHandler
+
+    lstItems.Clear
+    Dim i As Long
+    For i = 1 To mSecItems(idx).count
+        lstItems.AddItem mSecItems(idx)(i)
+    Next i
+
+    lstItems.Visible = True
+    btnAddItem.Visible = True
+    btnRemoveItem.Visible = True
+    btnEditItem.Visible = True
+    txtItem.Visible = True
+    txtItem.Text = ""
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ShowListSection"
+
+End Sub
+
+Private Sub ShowNestedSection(ByVal idx As Long)
+
+    On Error GoTo ErrHandler
+
+    lstItems.Clear
+    Dim i As Long
+    For i = 1 To mSecItems(idx).count
+        lstItems.AddItem Split(mSecItems(idx)(i), "|")(0)
+    Next i
+
+    lstItems.Visible = True
+    btnAddItem.Visible = True
+    btnRemoveItem.Visible = True
+    btnEditItem.Visible = True
+    txtItem.Visible = True
+    txtItem.Text = ""
+
+    lblSubItems.Visible = True
+    lstSubItems.Visible = True
+    btnAddSubItem.Visible = True
+    btnRemoveSubItem.Visible = True
+    btnEditSubItem.Visible = True
+    txtSubItem.Visible = True
+    txtSubItem.Text = ""
+    lstSubItems.Clear
+
+    If lstItems.ListCount > 0 Then
+        lstItems.ListIndex = 0
+        RefreshSubItems
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ShowNestedSection"
+
+End Sub
+
+'====================================================
+' TABLE SECTIONS
+'====================================================
 
 Private Sub ShowTableSection(ByVal idx As Long)
 
-    ' Show column header controls
-    lblColumns.Visible = True
-    lstColumns.Visible = True
-    btnAddCol.Visible = True
-    btnRemoveCol.Visible = True
+    On Error GoTo ErrHandler
 
-    ' Show row controls
+    lblColCount.Visible = True
+    spnColCount.Visible = True
+
+    Dim colCount As Long
+    If mSecCols(idx) <> "" Then
+        colCount = UBound(Split(mSecCols(idx), "~")) + 1
+    Else
+        colCount = 1
+    End If
+
+    mLoading = True
+    spnColCount.Value = colCount
+    mLoading = False
+
     lblRows.Visible = True
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
-    btnEditRow.Visible = True
     lblRowEditor.Visible = True
     fraRowEditor.Visible = True
 
-    ' Load column headers
-    lstColumns.Clear
-    If mSecCols(idx) <> "" Then
-        Dim cols() As String
-        cols = Split(mSecCols(idx), "~")
-        Dim i As Long
-        For i = 0 To UBound(cols)
-            If cols(i) <> "" Then lstColumns.AddItem cols(i)
-        Next i
+    RefreshRowList idx
+    ClearRowEditor
+
+    Exit Sub
+
+ErrHandler:
+    mLoading = False
+    HandleFormError "ShowTableSection"
+
+End Sub
+
+Private Sub spnColCount_Change()
+
+    On Error GoTo ErrHandler
+
+    If mLoading Then Exit Sub
+
+    Dim newCount As Long
+    newCount = spnColCount.Value
+
+    Dim i As Long
+    Dim newCols As String
+    For i = 1 To newCount
+        If i = 1 Then
+            newCols = "col1"
+        Else
+            newCols = newCols & "~col" & i
+        End If
+    Next i
+
+    mSecCols(mCurrentSection) = newCols
+
+    If mSecItems(mCurrentSection).count > 0 Then
+        MsgBox "Column count changed. Existing row data may be misaligned. " & _
+               "Review your rows after changing column count.", vbExclamation
     End If
 
-    ' Load rows
-    RefreshRowList idx
-
-    ' Clear editor
+    RefreshRowList mCurrentSection
     ClearRowEditor
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "spnColCount_Change"
 
 End Sub
 
 Private Sub RefreshRowList(ByVal idx As Long)
 
+    On Error GoTo ErrHandler
+
     lstRows.Clear
 
     Dim i As Long
     For i = 1 To mSecItems(idx).count
-        ' Display row as pipe-separated values
+
         Dim parts() As String
         parts = Split(mSecItems(idx)(i), "|")
-        lstRows.AddItem Join(parts, "  |  ")
+
+        Dim display As String
+        display = ""
+
+        Dim j As Long
+        For j = 0 To UBound(parts)
+            Dim val As String
+            val = Trim(parts(j))
+            If val <> "" Then
+                If display = "" Then
+                    display = val
+                Else
+                    display = display & "  |  " & val
+                End If
+            End If
+        Next j
+
+        If display = "" Then
+            display = "(empty row " & i & ")"
+        End If
+
+        lstRows.AddItem display
+
     Next i
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "RefreshRowList"
 
 End Sub
 
 Private Sub ClearRowEditor()
 
-    ' Remove any dynamically created controls from fraRowEditor
-    Dim ctrl As Control
+    On Error GoTo ErrHandler
+
+    Dim ctrl As MSForms.Control
     Dim toDelete() As String
     Dim count As Long
     count = 0
 
     For Each ctrl In fraRowEditor.Controls
-        count = count + 1
-        ReDim Preserve toDelete(1 To count)
-        toDelete(count) = ctrl.name
+        If ctrl.Tag = "dynamic" Then
+            count = count + 1
+            ReDim Preserve toDelete(1 To count)
+            toDelete(count) = ctrl.name
+        End If
     Next ctrl
 
     Dim j As Long
@@ -277,93 +567,24 @@ Private Sub ClearRowEditor()
         fraRowEditor.Controls.Remove toDelete(j)
     Next j
 
-End Sub
+    fraRowEditor.Tag = ""
 
-Private Sub btnAddCol_Click()
+    Exit Sub
 
-    Dim colName As String
-    colName = Trim(InputBox("Enter column header name:", "Add Column"))
-
-    If colName = "" Then Exit Sub
-
-    ' Append to tilde-delimited column string
-    If mSecCols(mCurrentSection) = "" Then
-        mSecCols(mCurrentSection) = colName
-    Else
-        mSecCols(mCurrentSection) = mSecCols(mCurrentSection) & "~" & colName
-    End If
-
-    lstColumns.AddItem colName
-
-End Sub
-
-Private Sub btnRemoveCol_Click()
-
-    Dim selIdx As Long
-    selIdx = lstColumns.ListIndex
-
-    If selIdx < 0 Then
-        MsgBox "Select a column to remove.", vbExclamation
-        Exit Sub
-    End If
-
-    If mSecItems(mCurrentSection).count > 0 Then
-        Dim resp As VbMsgBoxResult
-        resp = MsgBox("Removing a column will delete that column's data from all rows. Continue?", _
-                      vbYesNo + vbExclamation, "Remove Column")
-        If resp = vbNo Then Exit Sub
-    End If
-
-    ' Rebuild column string without removed column
-    Dim cols() As String
-    cols = Split(mSecCols(mCurrentSection), "~")
-
-    Dim newCols As String
-    Dim i As Long
-    For i = 0 To UBound(cols)
-        If i <> selIdx Then
-            If newCols = "" Then
-                newCols = cols(i)
-            Else
-                newCols = newCols & "~" & cols(i)
-            End If
-        End If
-    Next i
-    mSecCols(mCurrentSection) = newCols
-
-    ' Rebuild all rows removing that column's value
-    Dim newCol As New Collection
-    For i = 1 To mSecItems(mCurrentSection).count
-        Dim parts() As String
-        parts = Split(mSecItems(mCurrentSection)(i), "|")
-        Dim newRow As String
-        Dim j As Long
-        For j = 0 To UBound(parts)
-            If j <> selIdx Then
-                If newRow = "" Then
-                    newRow = parts(j)
-                Else
-                    newRow = newRow & "|" & parts(j)
-                End If
-            End If
-        Next j
-        newCol.Add newRow
-    Next i
-    Set mSecItems(mCurrentSection) = newCol
-
-    lstColumns.RemoveItem selIdx
-    RefreshRowList mCurrentSection
+ErrHandler:
+    HandleFormError "ClearRowEditor"
 
 End Sub
 
 Private Sub btnAddRow_Click()
 
+    On Error GoTo ErrHandler
+
     If mSecCols(mCurrentSection) = "" Then
-        MsgBox "Add at least one column before adding rows.", vbExclamation
+        MsgBox "Set a column count before adding rows.", vbExclamation
         Exit Sub
     End If
 
-    ' Build an empty row with one slot per column
     Dim cols() As String
     cols = Split(mSecCols(mCurrentSection), "~")
 
@@ -380,13 +601,19 @@ Private Sub btnAddRow_Click()
     mSecItems(mCurrentSection).Add emptyRow
     RefreshRowList mCurrentSection
 
-    ' Auto-select and open editor for new row
     lstRows.ListIndex = lstRows.ListCount - 1
     OpenRowEditor lstRows.ListCount - 1
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnAddRow_Click"
 
 End Sub
 
 Private Sub btnRemoveRow_Click()
+
+    On Error GoTo ErrHandler
 
     Dim selIdx As Long
     selIdx = lstRows.ListIndex
@@ -408,35 +635,41 @@ Private Sub btnRemoveRow_Click()
     RefreshRowList mCurrentSection
     ClearRowEditor
 
-End Sub
+    Exit Sub
 
-Private Sub btnEditRow_Click()
-
-    Dim selIdx As Long
-    selIdx = lstRows.ListIndex
-
-    If selIdx < 0 Then
-        MsgBox "Select a row to edit.", vbExclamation
-        Exit Sub
-    End If
-
-    OpenRowEditor selIdx
+ErrHandler:
+    HandleFormError "btnRemoveRow_Click"
 
 End Sub
 
 Private Sub lstRows_Click()
 
+    On Error GoTo ErrHandler
+
     If mLoading Then Exit Sub
     If lstRows.ListIndex < 0 Then Exit Sub
+
+    SaveRowEditor
+    RefreshRowList mCurrentSection
+
     OpenRowEditor lstRows.ListIndex
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "lstRows_Click"
 
 End Sub
 
 Private Sub OpenRowEditor(ByVal rowIdx As Long)
 
+    On Error GoTo ErrHandler
+
     ClearRowEditor
 
     If mSecCols(mCurrentSection) = "" Then Exit Sub
+    If rowIdx < 0 Then Exit Sub
+    If rowIdx + 1 > mSecItems(mCurrentSection).count Then Exit Sub
 
     Dim cols() As String
     cols = Split(mSecCols(mCurrentSection), "~")
@@ -446,28 +679,27 @@ Private Sub OpenRowEditor(ByVal rowIdx As Long)
     rowData = mSecItems(mCurrentSection)(rowIdx + 1)
     parts = Split(rowData, "|")
 
-    ' Dynamically create one Label + TextBox per column inside fraRowEditor
     Dim i As Long
     Dim topPos As Long
     topPos = 6
 
     For i = 0 To UBound(cols)
 
-        ' Label
         Dim lbl As MSForms.Label
         Set lbl = fraRowEditor.Controls.Add("Forms.Label.1", "lbl_col_" & i)
-        lbl.Caption = cols(i) & ":"
+        lbl.Tag = "dynamic"
+        lbl.Caption = "Column " & (i + 1) & ":"
         lbl.Left = 6
         lbl.Top = topPos
-        lbl.Width = 100
+        lbl.Width = 70
         lbl.Height = 16
 
-        ' TextBox
         Dim txt As MSForms.TextBox
         Set txt = fraRowEditor.Controls.Add("Forms.TextBox.1", "txt_col_" & i)
-        txt.Left = 110
+        txt.Tag = "dynamic"
+        txt.Left = 80
         txt.Top = topPos
-        txt.Width = 330
+        txt.Width = 360
         txt.Height = 20
 
         If i <= UBound(parts) Then
@@ -478,16 +710,22 @@ Private Sub OpenRowEditor(ByVal rowIdx As Long)
 
     Next i
 
-    ' Store which row is being edited
     fraRowEditor.Tag = CStr(rowIdx)
 
-    ' Resize frame to fit
-    fraRowEditor.Height = topPos + 10
-    If fraRowEditor.Height < 40 Then fraRowEditor.Height = 40
+    fraRowEditor.ScrollBars = 2   ' fmScrollBarsVertical
+    fraRowEditor.ScrollHeight = topPos + 10
+    If fraRowEditor.ScrollHeight < 40 Then fraRowEditor.ScrollHeight = 40
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "OpenRowEditor"
 
 End Sub
 
 Private Sub SaveRowEditor()
+
+    On Error GoTo ErrHandler
 
     If fraRowEditor.Tag = "" Then Exit Sub
 
@@ -495,20 +733,19 @@ Private Sub SaveRowEditor()
     rowIdx = CLng(fraRowEditor.Tag)
 
     If rowIdx + 1 > mSecItems(mCurrentSection).count Then Exit Sub
-
     If mSecCols(mCurrentSection) = "" Then Exit Sub
 
     Dim cols() As String
     cols = Split(mSecCols(mCurrentSection), "~")
 
-    ' Read values from dynamically created TextBoxes
     Dim newRow As String
     Dim i As Long
     For i = 0 To UBound(cols)
+
         Dim txt As MSForms.Control
         On Error Resume Next
         Set txt = fraRowEditor.Controls("txt_col_" & i)
-        On Error GoTo 0
+        On Error GoTo ErrHandler
 
         Dim val As String
         If Not txt Is Nothing Then
@@ -522,9 +759,9 @@ Private Sub SaveRowEditor()
         Else
             newRow = newRow & "|" & val
         End If
+
     Next i
 
-    ' Replace in collection
     Dim newCol As New Collection
     For i = 1 To mSecItems(mCurrentSection).count
         If i = rowIdx + 1 Then
@@ -535,96 +772,20 @@ Private Sub SaveRowEditor()
     Next i
     Set mSecItems(mCurrentSection) = newCol
 
-    RefreshRowList mCurrentSection
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "SaveRowEditor"
 
 End Sub
 
-Private Sub HideAllControls()
-
-    txtContent.Visible = False
-    lstItems.Visible = False
-    btnAddItem.Visible = False
-    btnRemoveItem.Visible = False
-    btnEditItem.Visible = False
-    txtItem.Visible = False
-    lblSubItems.Visible = False
-    lstSubItems.Visible = False
-    btnAddSubItem.Visible = False
-    btnRemoveSubItem.Visible = False
-    btnEditSubItem.Visible = False
-    txtSubItem.Visible = False
-
-    ' Table controls
-    lblColumns.Visible = False
-    lstColumns.Visible = False
-    btnAddCol.Visible = False
-    btnRemoveCol.Visible = False
-    lblRows.Visible = False
-    lstRows.Visible = False
-    btnAddRow.Visible = False
-    btnRemoveRow.Visible = False
-    btnEditRow.Visible = False
-    lblRowEditor.Visible = False
-    fraRowEditor.Visible = False
-
-End Sub
-
-Private Sub ShowPlainSection(ByVal idx As Long)
-
-    txtContent.Text = mSecData(idx)
-    txtContent.Visible = True
-
-End Sub
-
-Private Sub ShowListSection(ByVal idx As Long)
-
-    lstItems.Clear
-    Dim i As Long
-    For i = 1 To mSecItems(idx).count
-        lstItems.AddItem mSecItems(idx)(i)
-    Next i
-
-    lstItems.Visible = True
-    btnAddItem.Visible = True
-    btnRemoveItem.Visible = True
-    btnEditItem.Visible = True          ' new
-    txtItem.Visible = True
-    txtItem.Text = ""
-
-End Sub
-
-Private Sub ShowNestedSection(ByVal idx As Long)
-
-    lstItems.Clear
-    Dim i As Long
-    For i = 1 To mSecItems(idx).count
-        lstItems.AddItem Split(mSecItems(idx)(i), "|")(0)
-    Next i
-
-    lstItems.Visible = True
-    btnAddItem.Visible = True
-    btnRemoveItem.Visible = True
-    btnEditItem.Visible = True          ' new
-    txtItem.Visible = True
-    txtItem.Text = ""
-
-    lblSubItems.Visible = True
-    lstSubItems.Visible = True
-    btnAddSubItem.Visible = True
-    btnRemoveSubItem.Visible = True
-    btnEditSubItem.Visible = True       ' new
-    txtSubItem.Visible = True
-    txtSubItem.Text = ""
-    lstSubItems.Clear
-
-    If lstItems.ListCount > 0 Then
-        lstItems.ListIndex = 0
-        RefreshSubItems
-    End If
-
-End Sub
+'====================================================
+' EDIT MAIN ITEM / SUB-ITEM (List / Nested sections)
+'====================================================
 
 Private Sub btnEditItem_Click()
+
+    On Error GoTo ErrHandler
 
     Dim selIdx As Long
     selIdx = lstItems.ListIndex
@@ -637,7 +798,6 @@ Private Sub btnEditItem_Click()
     Dim itemIdx As Long
     itemIdx = selIdx + 1
 
-    ' For NESTED, show only the main part (before first pipe)
     Dim current As String
     If mSecTypes(mCurrentSection) = TYPE_NESTED Then
         current = Split(mSecItems(mCurrentSection)(itemIdx), "|")(0)
@@ -645,37 +805,23 @@ Private Sub btnEditItem_Click()
         current = mSecItems(mCurrentSection)(itemIdx)
     End If
 
-    Dim newVal As String
-    newVal = Trim(InputBox("Edit item:", "Edit", current))
+    ' Load the text into the entry box and switch into edit mode
+    txtItem.Text = current
+    txtItem.SetFocus
+    mEditingItemIdx = itemIdx
+    btnAddItem.Caption = "Confirm"
+    btnRemoveItem.Caption = "Cancel"
 
-    If newVal = "" Then Exit Sub
+    Exit Sub
 
-    ' Rebuild collection with updated value
-    Dim newCol As New Collection
-    Dim i As Long
-    For i = 1 To mSecItems(mCurrentSection).count
-        If i = itemIdx Then
-            If mSecTypes(mCurrentSection) = TYPE_NESTED Then
-                ' Preserve existing sub-items after the pipe
-                Dim parts() As String
-                parts = Split(mSecItems(mCurrentSection)(i), "|")
-                parts(0) = newVal
-                newCol.Add Join(parts, "|")
-            Else
-                newCol.Add newVal
-            End If
-        Else
-            newCol.Add mSecItems(mCurrentSection)(i)
-        End If
-    Next i
-    Set mSecItems(mCurrentSection) = newCol
-
-    ' Refresh display
-    lstItems.List(selIdx) = newVal
+ErrHandler:
+    HandleFormError "btnEditItem_Click"
 
 End Sub
 
 Private Sub btnEditSubItem_Click()
+
+    On Error GoTo ErrHandler
 
     Dim parentIdx As Long
     parentIdx = lstItems.ListIndex
@@ -699,32 +845,24 @@ Private Sub btnEditSubItem_Click()
     Dim parts() As String
     parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
 
+    If UBound(parts) < 1 Then Exit Sub
+
     Dim subs() As String
     subs = Split(parts(1), "~")
 
-    Dim newVal As String
-    newVal = Trim(InputBox("Edit sub-item:", "Edit", subs(subIdx)))
+    If subIdx > UBound(subs) Then Exit Sub
 
-    If newVal = "" Then Exit Sub
+    ' Load full (untruncated) text into the entry box
+    txtSubItem.Text = subs(subIdx)
+    txtSubItem.SetFocus
+    mEditingSubIdx = subIdx
+    btnAddSubItem.Caption = "Confirm"
+    btnRemoveSubItem.Caption = "Cancel"
 
-    subs(subIdx) = newVal
+    Exit Sub
 
-    ' Rebuild
-    Dim newStr As String
-    newStr = parts(0) & "|" & Join(subs, "~")
-
-    Dim newCol As New Collection
-    Dim i As Long
-    For i = 1 To mSecItems(mCurrentSection).count
-        If i = itemIdx Then
-            newCol.Add newStr
-        Else
-            newCol.Add mSecItems(mCurrentSection)(i)
-        End If
-    Next i
-    Set mSecItems(mCurrentSection) = newCol
-
-    lstSubItems.List(subIdx) = newVal
+ErrHandler:
+    HandleFormError "btnEditSubItem_Click"
 
 End Sub
 
@@ -733,6 +871,8 @@ End Sub
 '====================================================
 
 Private Sub SaveCurrentSection()
+
+    On Error GoTo ErrHandler
 
     If mCurrentSection < 1 Or mCurrentSection > mSecCount Then Exit Sub
 
@@ -746,6 +886,11 @@ Private Sub SaveCurrentSection()
 
     End Select
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "SaveCurrentSection"
+
 End Sub
 
 '====================================================
@@ -754,14 +899,26 @@ End Sub
 
 Private Sub lstItems_Click()
 
+    On Error GoTo ErrHandler
+
     If mLoading Then Exit Sub
     If mSecTypes(mCurrentSection) <> TYPE_NESTED Then Exit Sub
+    If lstItems.ListIndex < 0 Then Exit Sub
 
+    lstSubItems.Clear
+    txtSubItem.Text = ""
     RefreshSubItems
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "lstItems_Click"
 
 End Sub
 
 Private Sub RefreshSubItems()
+
+    On Error GoTo ErrHandler
 
     lstSubItems.Clear
 
@@ -774,20 +931,34 @@ Private Sub RefreshSubItems()
 
     If itemIdx > mSecItems(mCurrentSection).count Then Exit Sub
 
-    Dim parts() As String
-    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+    Dim entry As String
+    entry = mSecItems(mCurrentSection)(itemIdx)
 
-    ' parts(0) = main item; parts(1) = tilde-delimited sub-items
-    If UBound(parts) = 0 Then Exit Sub
-    If parts(1) = "" Then Exit Sub
+    If InStr(entry, "|") = 0 Then Exit Sub
+
+    Dim parts() As String
+    parts = Split(entry, "|")
+
+    If UBound(parts) < 1 Then Exit Sub
+    If Trim(parts(1)) = "" Then Exit Sub
 
     Dim subs() As String
     subs = Split(parts(1), "~")
 
     Dim i As Long
     For i = 0 To UBound(subs)
-        If subs(i) <> "" Then lstSubItems.AddItem subs(i)
+        Dim txt As String
+        txt = Trim(subs(i))
+        If txt <> "" Then
+            If Len(txt) > 50 Then txt = Left(txt, 47) & "..."
+            lstSubItems.AddItem txt
+        End If
     Next i
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "RefreshSubItems"
 
 End Sub
 
@@ -797,6 +968,8 @@ End Sub
 
 Private Sub btnAddItem_Click()
 
+    On Error GoTo ErrHandler
+
     Dim newItem As String
     newItem = Trim(txtItem.Text)
 
@@ -805,14 +978,68 @@ Private Sub btnAddItem_Click()
         Exit Sub
     End If
 
-    mSecItems(mCurrentSection).Add newItem
-    lstItems.AddItem newItem
-    txtItem.Text = ""
+    If mEditingItemIdx > 0 Then
+
+        ' SAVE mode - update the existing item in place
+        PushUndo
+
+        Dim newCol As New Collection
+        Dim i As Long
+        For i = 1 To mSecItems(mCurrentSection).count
+            If i = mEditingItemIdx Then
+                If mSecTypes(mCurrentSection) = TYPE_NESTED Then
+                    Dim parts() As String
+                    parts = Split(mSecItems(mCurrentSection)(i), "|")
+                    parts(0) = newItem
+                    newCol.Add Join(parts, "|")
+                Else
+                    newCol.Add newItem
+                End If
+            Else
+                newCol.Add mSecItems(mCurrentSection)(i)
+            End If
+        Next i
+        Set mSecItems(mCurrentSection) = newCol
+
+        RefreshItemsDisplay
+        lstItems.ListIndex = mEditingItemIdx - 1
+
+        ' Exit edit mode
+        mEditingItemIdx = 0
+        btnAddItem.Caption = "+ Add"
+        btnRemoveItem.Caption = "— Remove"
+        txtItem.Text = ""
+
+    Else
+
+        ' ADD mode - new item, same as before
+        mSecItems(mCurrentSection).Add newItem
+        lstItems.AddItem newItem
+        txtItem.Text = ""
+
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnAddItem_Click"
 
 End Sub
 
 Private Sub btnRemoveItem_Click()
 
+    On Error GoTo ErrHandler
+
+    ' CANCEL path - must be checked first, and must never touch PushUndo/data
+    If mEditingItemIdx > 0 Then
+        mEditingItemIdx = 0
+        btnAddItem.Caption = "+ Add"
+        btnRemoveItem.Caption = "— Remove"
+        txtItem.Text = ""
+        Exit Sub
+    End If
+
+    ' REMOVE path - only reached if we were NOT editing
     Dim selIdx As Long
     selIdx = lstItems.ListIndex
 
@@ -821,7 +1048,8 @@ Private Sub btnRemoveItem_Click()
         Exit Sub
     End If
 
-    ' Remove from collection (1-based)
+    PushUndo
+
     Dim i As Long
     Dim newCol As New Collection
     For i = 1 To mSecItems(mCurrentSection).count
@@ -834,6 +1062,11 @@ Private Sub btnRemoveItem_Click()
     lstItems.RemoveItem selIdx
     lstSubItems.Clear
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnRemoveItem_Click"
+
 End Sub
 
 '====================================================
@@ -841,6 +1074,8 @@ End Sub
 '====================================================
 
 Private Sub btnAddSubItem_Click()
+
+    On Error GoTo ErrHandler
 
     Dim selIdx As Long
     selIdx = lstItems.ListIndex
@@ -864,37 +1099,95 @@ Private Sub btnAddSubItem_Click()
     Dim current As String
     current = mSecItems(mCurrentSection)(itemIdx)
 
-    ' Split on pipe: parts(0) = main item, parts(1) = tilde-delimited sub-items
     Dim parts() As String
     parts = Split(current, "|")
 
-    If UBound(parts) = 0 Then
-        ' No sub-items yet — create the sub-items segment
-        current = parts(0) & "|" & newSub
+    If mEditingSubIdx >= 0 And mEditingSubIdx <> -1 And btnAddSubItem.Caption = "Save Changes" Then
+
+        ' SAVE mode - replace the specific sub-item in place
+        PushUndo
+
+        Dim subs() As String
+        If UBound(parts) >= 1 Then
+            subs = Split(parts(1), "~")
+        Else
+            ReDim subs(0)
+        End If
+
+        subs(mEditingSubIdx) = newSub
+
+        Dim newStr As String
+        newStr = parts(0) & "|" & Join(subs, "~")
+
+        Dim newCol As New Collection
+        Dim i As Long
+        For i = 1 To mSecItems(mCurrentSection).count
+            If i = itemIdx Then
+                newCol.Add newStr
+            Else
+                newCol.Add mSecItems(mCurrentSection)(i)
+            End If
+        Next i
+        Set mSecItems(mCurrentSection) = newCol
+
+        RefreshSubItems
+        lstSubItems.ListIndex = mEditingSubIdx
+
+        mEditingSubIdx = -1
+        btnAddSubItem.Caption = "+ Add"
+        btnRemoveSubItem.Caption = "— Remove"
+        txtSubItem.Text = ""
+
     Else
-        ' Append to existing sub-items segment with tilde delimiter
-        current = parts(0) & "|" & parts(1) & "~" & newSub
+
+        ' ADD mode - append new sub-item, same as before
+        If UBound(parts) = 0 Then
+            current = parts(0) & "|" & newSub
+        Else
+            current = parts(0) & "|" & parts(1) & "~" & newSub
+        End If
+
+        Dim newCol2 As New Collection
+        Dim j As Long
+        For j = 1 To mSecItems(mCurrentSection).count
+            If j = itemIdx Then
+                newCol2.Add current
+            Else
+                newCol2.Add mSecItems(mCurrentSection)(j)
+            End If
+        Next j
+        Set mSecItems(mCurrentSection) = newCol2
+
+        Dim displayVal As String
+        displayVal = newSub
+        If Len(displayVal) > 50 Then displayVal = Left(displayVal, 47) & "..."
+        lstSubItems.AddItem displayVal
+
+        txtSubItem.Text = ""
+
     End If
 
-    ' Replace in collection
-    Dim newCol As New Collection
-    Dim i As Long
-    For i = 1 To mSecItems(mCurrentSection).count
-        If i = itemIdx Then
-            newCol.Add current
-        Else
-            newCol.Add mSecItems(mCurrentSection)(i)
-        End If
-    Next i
-    Set mSecItems(mCurrentSection) = newCol
+    Exit Sub
 
-    lstSubItems.AddItem newSub
-    txtSubItem.Text = ""
+ErrHandler:
+    HandleFormError "btnAddSubItem_Click"
 
 End Sub
 
 Private Sub btnRemoveSubItem_Click()
 
+    On Error GoTo ErrHandler
+
+    ' CANCEL path - must be checked first, and must never touch PushUndo/data
+    If mEditingSubIdx >= 0 And btnAddSubItem.Caption = "Save Changes" Then
+        mEditingSubIdx = -1
+        btnAddSubItem.Caption = "+ Add"
+        btnRemoveSubItem.Caption = "— Remove"
+        txtSubItem.Text = ""
+        Exit Sub
+    End If
+
+    ' REMOVE path - only reached if we were NOT editing
     Dim parentIdx As Long
     parentIdx = lstItems.ListIndex
 
@@ -908,6 +1201,8 @@ Private Sub btnRemoveSubItem_Click()
         Exit Sub
     End If
 
+    PushUndo
+
     Dim itemIdx As Long
     itemIdx = parentIdx + 1
 
@@ -915,10 +1210,10 @@ Private Sub btnRemoveSubItem_Click()
     parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
 
     Dim newStr As String
-    newStr = parts(0)   ' always keep the main item name
+    newStr = parts(0)
 
     If UBound(parts) > 0 Then
-        ' Rebuild tilde-delimited sub-items without the removed one
+
         Dim subs() As String
         subs = Split(parts(1), "~")
 
@@ -935,9 +1230,9 @@ Private Sub btnRemoveSubItem_Click()
         Next i
 
         If newSubs <> "" Then newStr = newStr & "|" & newSubs
+
     End If
 
-    ' Replace in collection
     Dim newCol As New Collection
     For i = 1 To mSecItems(mCurrentSection).count
         If i = itemIdx Then
@@ -950,6 +1245,11 @@ Private Sub btnRemoveSubItem_Click()
 
     lstSubItems.RemoveItem subIdx
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnRemoveSubItem_Click"
+
 End Sub
 
 '====================================================
@@ -957,6 +1257,8 @@ End Sub
 '====================================================
 
 Private Sub btnAddSection_Click()
+
+    On Error GoTo ErrHandler
 
     Dim secName As String
     secName = Trim(InputBox("Enter section name:", "Add Section"))
@@ -1007,6 +1309,11 @@ Private Sub btnAddSection_Click()
     mCurrentSection = mSecCount
     ShowSection mCurrentSection
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnAddSection_Click"
+
 End Sub
 
 '====================================================
@@ -1014,6 +1321,8 @@ End Sub
 '====================================================
 
 Private Sub LoadFromSheet()
+
+    On Error GoTo ErrHandler
 
     Dim ws As Worksheet
     Dim tbl As ListObject
@@ -1046,7 +1355,7 @@ Private Sub LoadFromSheet()
 
                 Case TYPE_NESTED
                     LoadNestedColumns tbl, col, secIdx
-                    
+
                 Case TYPE_TABLE
                     LoadTableColumns tbl, col, secIdx
 
@@ -1056,70 +1365,16 @@ Private Sub LoadFromSheet()
 
     Next col
 
-End Sub
+    Exit Sub
 
-Private Sub LoadTableColumns(ByVal tbl As ListObject, _
-                              ByVal col As Long, _
-                              ByVal secIdx As Long)
-
-    ' Find contiguous Table# columns
-    Dim lastTableCol As Long
-    lastTableCol = col
-
-    Dim c As Long
-    For c = col + 1 To tbl.ListColumns.count
-        Dim colName As String
-        colName = LCase(Trim(tbl.ListColumns(c).name))
-        If Left(colName, 5) = "table" And InStr(colName, " ") = 0 Then
-            lastTableCol = c
-        Else
-            Exit For
-        End If
-    Next c
-
-    ' Build column header string from Table# column names
-    ' (use row 1 values if present, otherwise use column names)
-    Dim colHeaders As String
-    For c = col To lastTableCol
-        Dim hdr As String
-        hdr = Trim(tbl.ListColumns(c).name)
-        If colHeaders = "" Then
-            colHeaders = hdr
-        Else
-            colHeaders = colHeaders & "~" & hdr
-        End If
-    Next c
-    mSecCols(secIdx) = colHeaders
-
-    ' Load rows
-    Set mSecItems(secIdx) = New Collection
-
-    Dim r As Long
-    For r = 1 To tbl.ListRows.count
-
-        Dim rowStr As String
-        rowStr = ""
-
-        For c = col To lastTableCol
-            Dim val As String
-            val = Trim(tbl.DataBodyRange(r, c).Value)
-            If c = col Then
-                rowStr = val
-            Else
-                rowStr = rowStr & "|" & val
-            End If
-        Next c
-
-        ' Only add non-empty rows
-        If Replace(rowStr, "|", "") <> "" Then
-            mSecItems(secIdx).Add rowStr
-        End If
-
-    Next r
+ErrHandler:
+    HandleFormError "LoadFromSheet"
 
 End Sub
 
 Private Function FindSection(ByVal name As String) As Long
+
+    On Error GoTo ErrHandler
 
     Dim i As Long
     For i = 1 To mSecCount
@@ -1130,12 +1385,19 @@ Private Function FindSection(ByVal name As String) As Long
     Next i
 
     FindSection = 0
+    Exit Function
+
+ErrHandler:
+    HandleFormError "FindSection"
+    FindSection = 0
 
 End Function
 
 Private Sub LoadPlainColumn(ByVal tbl As ListObject, _
                              ByVal col As Long, _
                              ByVal secIdx As Long)
+
+    On Error GoTo ErrHandler
 
     Dim r As Long
     Dim txt As String
@@ -1151,11 +1413,18 @@ Private Sub LoadPlainColumn(ByVal tbl As ListObject, _
         End If
     Next r
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "LoadPlainColumn"
+
 End Sub
 
 Private Sub LoadListColumn(ByVal tbl As ListObject, _
                             ByVal col As Long, _
                             ByVal secIdx As Long)
+
+    On Error GoTo ErrHandler
 
     Dim r As Long
     Dim txt As String
@@ -1167,13 +1436,19 @@ Private Sub LoadListColumn(ByVal tbl As ListObject, _
         If txt <> "" Then mSecItems(secIdx).Add txt
     Next r
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "LoadListColumn"
+
 End Sub
 
 Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
                                ByVal parentCol As Long, _
                                ByVal secIdx As Long)
 
-    ' Find contiguous Bullet columns after parentCol
+    On Error GoTo ErrHandler
+
     Dim lastBulletCol As Long
     lastBulletCol = parentCol
 
@@ -1206,22 +1481,12 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
 
         If mainVal <> "" Then
 
-            ' A new role/parent starts here — flush whatever we were
+            ' A new role/parent starts here - flush whatever we were
             ' accumulating for the previous one first
             If haveEntry Then
                 FlushNestedEntry mSecItems(secIdx), currentMain, currentSubs
             End If
 
-<<<<<<< Updated upstream
-            For c = parentCol + 1 To lastBulletCol
-                Dim subVal As String
-                subVal = Trim(tbl.DataBodyRange(r, c).Value)
-                If subVal <> "" Then entry = entry & "|" & subVal
-            Next c
-
-            mSecItems(secIdx).Add entry
-
-=======
             currentMain = mainVal
             currentSubs = ""
             haveEntry = True
@@ -1243,25 +1508,100 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
                     End If
                 End If
             Next c
->>>>>>> Stashed changes
         End If
 
     Next r
 
-    ' Flush the final accumulated entry
     If haveEntry Then
         FlushNestedEntry mSecItems(secIdx), currentMain, currentSubs
     End If
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "LoadNestedColumns"
+
 End Sub
 
 Private Sub FlushNestedEntry(ByVal col As Collection, ByVal mainVal As String, ByVal subs As String)
+
+    On Error GoTo ErrHandler
 
     Dim entry As String
     entry = mainVal
     If subs <> "" Then entry = entry & "|" & subs
 
     col.Add entry
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "FlushNestedEntry"
+
+End Sub
+
+Private Sub LoadTableColumns(ByVal tbl As ListObject, _
+                              ByVal col As Long, _
+                              ByVal secIdx As Long)
+
+    On Error GoTo ErrHandler
+
+    Dim lastTableCol As Long
+    lastTableCol = col
+
+    Dim c As Long
+    For c = col + 1 To tbl.ListColumns.count
+        Dim colName As String
+        colName = LCase(Trim(tbl.ListColumns(c).name))
+        If Left(colName, 5) = "table" And InStr(colName, " ") = 0 Then
+            lastTableCol = c
+        Else
+            Exit For
+        End If
+    Next c
+
+    Dim colCount As Long
+    colCount = lastTableCol - col + 1
+
+    Dim i As Long
+    Dim colStr As String
+    For i = 1 To colCount
+        If i = 1 Then
+            colStr = "col1"
+        Else
+            colStr = colStr & "~col" & i
+        End If
+    Next i
+    mSecCols(secIdx) = colStr
+
+    Set mSecItems(secIdx) = New Collection
+
+    Dim r As Long
+    For r = 1 To tbl.ListRows.count
+
+        Dim rowStr As String
+        rowStr = ""
+
+        For c = col To lastTableCol
+            Dim val As String
+            val = Trim(tbl.DataBodyRange(r, c).Value)
+            If c = col Then
+                rowStr = val
+            Else
+                rowStr = rowStr & "|" & val
+            End If
+        Next c
+
+        If Replace(rowStr, "|", "") <> "" Then
+            mSecItems(secIdx).Add rowStr
+        End If
+
+    Next r
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "LoadTableColumns"
 
 End Sub
 
@@ -1271,10 +1611,11 @@ End Sub
 
 Private Sub btnSave_Click()
 
+    On Error GoTo ErrHandler
+
     Dim ws As Worksheet
     Set ws = ActiveSheet
 
-    ' Warn if sheet already has data
     If ws.ListObjects.count > 0 Then
         If ws.ListObjects(1).ListRows.count > 0 Then
             Dim resp As VbMsgBoxResult
@@ -1284,68 +1625,41 @@ Private Sub btnSave_Click()
         End If
     End If
 
-    ' Save whatever section is currently visible
     SaveCurrentSection
 
-    ' Clear existing table or create new one
     ClearSheet ws
-
-    ' Build column headers and data
     WriteToSheet ws
 
     MsgBox "Saved to sheet successfully.", vbInformation, "SOD Form"
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnSave_Click"
 
 End Sub
 
 Private Sub ClearSheet(ByVal ws As Worksheet)
 
+    On Error GoTo ErrHandler
+
     ws.Cells.Clear
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ClearSheet"
 
 End Sub
 
 Private Sub WriteToSheet(ByVal ws As Worksheet)
 
-    Dim headers() As String
-    Dim colCount As Long
-    colCount = 0
+    On Error GoTo ErrHandler
 
-    ' First pass: count total columns needed
-    Dim i As Long
-    For i = 1 To mSecCount
-
-        Select Case mSecTypes(i)
-
-            Case TYPE_PLAIN
-                colCount = colCount + 1
-
-            Case TYPE_LIST
-                colCount = colCount + 1
-
-            Case TYPE_NESTED
-                ' Parent column + max sub-item depth across all items
-                Dim maxDepth As Long
-                maxDepth = MaxSubDepth(i)
-                colCount = colCount + 1 + maxDepth
-                
-            Case TYPE_TABLE
-                WriteTableToSheet ws, i, currentCol
-                ' Count columns used: 1 header col + Table# helper cols
-                Dim tblColCount As Long
-                If mSecCols(i) <> "" Then
-                    tblColCount = UBound(Split(mSecCols(i), "~")) + 1
-                Else
-                    tblColCount = 1
-                End If
-                currentCol = currentCol + tblColCount
-
-        End Select
-
-    Next i
-
-    ' Write headers and data column by column
     Dim currentCol As Long
     currentCol = 1
 
+    Dim i As Long
     For i = 1 To mSecCount
 
         ws.Cells(1, currentCol).Value = mSecNames(i)
@@ -1366,70 +1680,42 @@ Private Sub WriteToSheet(ByVal ws As Worksheet)
                 WriteNestedToSheet ws, i, currentCol, depth
                 currentCol = currentCol + 1 + depth
 
+            Case TYPE_TABLE
+                Dim tblCols As Long
+                If mSecCols(i) <> "" Then
+                    tblCols = UBound(Split(mSecCols(i), "~")) + 1
+                Else
+                    tblCols = 1
+                End If
+                WriteTableToSheet ws, i, currentCol
+                currentCol = currentCol + tblCols
+
         End Select
 
     Next i
 
-    ' Create Excel table from the written data
     Dim lastRow As Long
     Dim lastCol As Long
-    lastRow = ws.Cells(ws.Rows.count, 1).End(-4162).Row  ' xlUp
+    lastRow = ws.Cells(ws.Rows.count, 1).End(-4162).Row    ' xlUp
     lastCol = ws.Cells(1, ws.Columns.count).End(-4159).Column  ' xlToLeft
 
     If lastRow >= 2 Then
         Dim tblRange As Range
         Set tblRange = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, lastCol))
-        ws.ListObjects.Add(1, tblRange, , 1).name = "SODTable"  ' xlSrcRange, xlYes header
+        ws.ListObjects.Add(1, tblRange, , 1).name = "SODTable"  ' xlSrcRange, xlYes
     End If
 
-End Sub
+    Exit Sub
 
-Private Sub WriteTableToSheet(ByVal ws As Worksheet, _
-                               ByVal secIdx As Long, _
-                               ByVal startCol As Long)
-
-    If mSecCols(secIdx) = "" Then Exit Sub
-
-    Dim cols() As String
-    cols = Split(mSecCols(secIdx), "~")
-
-    ' Write section name in first column
-    ws.Cells(1, startCol).Value = mSecNames(secIdx)
-
-    ' Write Table# helper column headers
-    Dim c As Long
-    For c = 0 To UBound(cols)
-        ws.Cells(1, startCol + c).Value = "Table" & (c + 1)
-    Next c
-
-    ' Override first column with section name (Table1 becomes the heading col)
-    ws.Cells(1, startCol).Value = mSecNames(secIdx)
-
-    ' Write row data
-    Dim r As Long
-    r = 2
-
-    Dim i As Long
-    For i = 1 To mSecItems(secIdx).count
-
-        Dim parts() As String
-        parts = Split(mSecItems(secIdx)(i), "|")
-
-        For c = 0 To UBound(cols)
-            If c <= UBound(parts) Then
-                ws.Cells(r, startCol + c).Value = Trim(parts(c))
-            End If
-        Next c
-
-        r = r + 1
-
-    Next i
+ErrHandler:
+    HandleFormError "WriteToSheet"
 
 End Sub
 
 Private Function MaxSubDepth(ByVal secIdx As Long) As Long
 
-    ' Always exactly 1 bullet column for nested sections
+    On Error GoTo ErrHandler
+
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
         Dim parts() As String
@@ -1441,12 +1727,19 @@ Private Function MaxSubDepth(ByVal secIdx As Long) As Long
     Next i
 
     MaxSubDepth = 0
+    Exit Function
+
+ErrHandler:
+    HandleFormError "MaxSubDepth"
+    MaxSubDepth = 0
 
 End Function
 
 Private Sub WritePlainToSheet(ByVal ws As Worksheet, _
                                ByVal secIdx As Long, _
                                ByVal col As Long)
+
+    On Error GoTo ErrHandler
 
     Dim lines() As String
     lines = Split(mSecData(secIdx), vbCrLf)
@@ -1458,16 +1751,28 @@ Private Sub WritePlainToSheet(ByVal ws As Worksheet, _
         End If
     Next r
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "WritePlainToSheet"
+
 End Sub
 
 Private Sub WriteListToSheet(ByVal ws As Worksheet, _
                               ByVal secIdx As Long, _
                               ByVal col As Long)
 
+    On Error GoTo ErrHandler
+
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
         ws.Cells(i + 1, col).Value = mSecItems(secIdx)(i)
     Next i
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "WriteListToSheet"
 
 End Sub
 
@@ -1476,7 +1781,8 @@ Private Sub WriteNestedToSheet(ByVal ws As Worksheet, _
                                 ByVal startCol As Long, _
                                 ByVal depth As Long)
 
-    ' Always exactly one Bullet1 helper column — no deeper nesting
+    On Error GoTo ErrHandler
+
     ws.Cells(1, startCol + 1).Value = "Bullet1"
 
     Dim r As Long
@@ -1488,10 +1794,8 @@ Private Sub WriteNestedToSheet(ByVal ws As Worksheet, _
         Dim parts() As String
         parts = Split(mSecItems(secIdx)(i), "|")
 
-        ' Main item in parent column
         ws.Cells(r, startCol).Value = parts(0)
 
-        ' Sub-items each go on their own row in Bullet1 column
         If UBound(parts) > 0 And parts(1) <> "" Then
 
             Dim subs() As String
@@ -1511,6 +1815,55 @@ Private Sub WriteNestedToSheet(ByVal ws As Worksheet, _
 
     Next i
 
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "WriteNestedToSheet"
+
+End Sub
+
+Private Sub WriteTableToSheet(ByVal ws As Worksheet, _
+                               ByVal secIdx As Long, _
+                               ByVal startCol As Long)
+
+    On Error GoTo ErrHandler
+
+    If mSecCols(secIdx) = "" Then Exit Sub
+
+    Dim colCount As Long
+    colCount = UBound(Split(mSecCols(secIdx), "~")) + 1
+
+    ws.Cells(1, startCol).Value = mSecNames(secIdx)
+
+    Dim c As Long
+    For c = 1 To colCount - 1
+        ws.Cells(1, startCol + c).Value = "Table" & (c + 1)
+    Next c
+
+    Dim r As Long
+    r = 2
+
+    Dim i As Long
+    For i = 1 To mSecItems(secIdx).count
+
+        Dim parts() As String
+        parts = Split(mSecItems(secIdx)(i), "|")
+
+        For c = 0 To colCount - 1
+            If c <= UBound(parts) Then
+                ws.Cells(r, startCol + c).Value = Trim(parts(c))
+            End If
+        Next c
+
+        r = r + 1
+
+    Next i
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "WriteTableToSheet"
+
 End Sub
 
 '====================================================
@@ -1519,7 +1872,14 @@ End Sub
 
 Private Sub btnCancel_Click()
 
+    On Error GoTo ErrHandler
+
     Unload Me
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnCancel_Click"
 
 End Sub
 
