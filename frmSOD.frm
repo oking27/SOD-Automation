@@ -30,12 +30,16 @@ Private Const SEC_OBJECTIVES As String = "Objectives"
 Private Const SEC_STEPS As String = "Process Steps"
 Private Const SEC_KPIS As String = "Key Performance Indicators"
 Private Const SEC_RESOURCES As String = "Additional Resources"
+Private Const SEC_RESOURCES_COL1 As String = "Resource Type"
+Private Const SEC_RESOURCES_COL2 As String = "List or Document Link"
+Private Const SEC_RESOURCES_COL3 As String = "Document Number"
 
 ' Section types
-Private Const TYPE_PLAIN As String = "PLAIN"       ' single TextBox
-Private Const TYPE_NESTED As String = "NESTED"     ' items + sub-items
-Private Const TYPE_LIST As String = "LIST"         ' items only, no sub-items
-Private Const TYPE_TABLE As String = "TABLE"       ' column count + rows
+Private Const TYPE_PLAIN As String = "PLAIN"           ' single TextBox
+Private Const TYPE_NESTED As String = "NESTED"         ' items + sub-items
+Private Const TYPE_LIST As String = "LIST"             ' items only, no sub-items
+Private Const TYPE_TABLE As String = "TABLE"           ' column count + rows
+Private Const TYPE_RESOURCES As String = "RESOURCES"   ' fixed 3-column table
 
 ' Data store: parallel arrays indexed by section
 Private mSecNames() As String      ' display name
@@ -52,8 +56,8 @@ Private mSecData() As String
 Private mSecItems() As Collection
 Private mSecCols() As String
 
-Private mCurrentSection As Long    ' 1-based index of selected section
-Private mLoading As Boolean        ' suppress change events during load
+Private mCurrentSection As Long      ' 1-based index of selected section
+Private mLoading As Boolean          ' suppress change events during load
 
 Private mEditingItemIdx As Long      ' 0 = not editing, otherwise 1-based item index
 Private mEditingSubIdx As Long       ' 0 = not editing, otherwise 0-based sub-item index
@@ -78,10 +82,20 @@ Private Sub PushUndo()
     mUndoCols = mSecCols(mCurrentSection)
     mUndoAvailable = True
 
+    RefreshUndoButton
+
     Exit Sub
 
 ErrHandler:
     HandleFormError "PushUndo"
+
+End Sub
+
+Private Sub RefreshUndoButton()
+
+    On Error Resume Next
+    btnUndo.Enabled = mUndoAvailable
+    On Error GoTo 0
 
 End Sub
 
@@ -116,6 +130,7 @@ Private Sub btnUndo_Click()
     mSecCols(mCurrentSection) = mUndoCols
 
     mUndoAvailable = False
+    RefreshUndoButton
 
     ShowSection mCurrentSection
 
@@ -401,7 +416,15 @@ Private Sub HandleFormError(ByVal procName As String)
 
 End Sub
 
+Private Sub CommandButton1_Click()
+
+End Sub
+
 Private Sub fraRowEditor_Click()
+
+End Sub
+
+Private Sub lstSubItems_Click()
 
 End Sub
 
@@ -426,6 +449,7 @@ Private Sub UserForm_Initialize()
     ShowSection 1
 
     mLoading = False
+    RefreshUndoButton
 
     Exit Sub
 
@@ -462,7 +486,7 @@ Private Sub InitSections()
     mSecTypes(5) = TYPE_LIST
     mSecTypes(6) = TYPE_NESTED
     mSecTypes(7) = TYPE_LIST
-    mSecTypes(8) = TYPE_NESTED
+    mSecTypes(8) = TYPE_RESOURCES
 
     Dim i As Long
     For i = 1 To mSecCount
@@ -563,7 +587,10 @@ Private Sub ShowSection(ByVal idx As Long)
 
         Case TYPE_TABLE
             ShowTableSection idx
-
+            
+        Case TYPE_RESOURCES
+            ShowResourcesSection idx
+            
     End Select
 
     mLoading = False
@@ -609,6 +636,31 @@ ErrHandler:
 
 End Sub
 
+Private Sub ShowResourcesSection(ByVal idx As Long)
+
+    On Error GoTo ErrHandler
+
+    ' Fixed 3 columns - no column-count spinner needed
+    If mSecCols(idx) = "" Then
+        mSecCols(idx) = "col1~col2~col3"
+    End If
+
+    lblRows.Visible = True
+    lstRows.Visible = True
+    btnAddRow.Visible = True
+    btnRemoveRow.Visible = True
+    lblRowEditor.Visible = True
+    fraRowEditor.Visible = True
+
+    RefreshRowList idx
+    ClearRowEditor
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ShowResourcesSection"
+
+End Sub
 
 Private Sub ShowPlainSection(ByVal idx As Long)
 
@@ -731,6 +783,7 @@ Private Sub spnColCount_Change()
     On Error GoTo ErrHandler
 
     If mLoading Then Exit Sub
+    PushUndo
 
     Dim newCount As Long
     newCount = spnColCount.Value
@@ -948,11 +1001,16 @@ Private Sub OpenRowEditor(ByVal rowIdx As Long)
         Dim lbl As MSForms.Label
         Set lbl = fraRowEditor.Controls.Add("Forms.Label.1", "lbl_col_" & i)
         lbl.Tag = "dynamic"
-        lbl.Caption = "Column " & (i + 1) & ":"
         lbl.Left = 6
         lbl.Top = topPos
         lbl.Width = 70
         lbl.Height = 16
+        
+        If mSecTypes(mCurrentSection) = TYPE_RESOURCES Then
+            lbl.Caption = ResourceColumnLabel(i) & ":"
+        Else
+            lbl.Caption = "Column " & (i + 1) & ":"
+        End If
 
         Dim txt As MSForms.TextBox
         Set txt = fraRowEditor.Controls.Add("Forms.TextBox.1", "txt_col_" & i)
@@ -982,6 +1040,17 @@ ErrHandler:
     HandleFormError "OpenRowEditor"
 
 End Sub
+
+Private Function ResourceColumnLabel(ByVal colIdx As Long) As String
+
+    Select Case colIdx
+        Case 0: ResourceColumnLabel = SEC_RESOURCES_COL1
+        Case 1: ResourceColumnLabel = SEC_RESOURCES_COL2
+        Case 2: ResourceColumnLabel = SEC_RESOURCES_COL3
+        Case Else: ResourceColumnLabel = "Column " & (colIdx + 1)
+    End Select
+
+End Function
 
 Private Sub SaveRowEditor()
 
@@ -1327,6 +1396,9 @@ Private Sub SaveCurrentSection()
 
         Case TYPE_TABLE
             SaveRowEditor
+            
+        Case TYPE_RESOURCES
+            SaveRowEditor
 
     End Select
 
@@ -1334,6 +1406,23 @@ Private Sub SaveCurrentSection()
 
 ErrHandler:
     HandleFormError "SaveCurrentSection"
+
+End Sub
+
+Private Sub txtContent_Enter()
+
+    On Error GoTo ErrHandler
+
+    If mLoading Then Exit Sub
+    If mCurrentSection < 1 Then Exit Sub
+    If mSecTypes(mCurrentSection) <> TYPE_PLAIN Then Exit Sub
+
+    PushUndo
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "txtContent_Enter"
 
 End Sub
 
@@ -1833,6 +1922,9 @@ Private Sub LoadFromSheet()
 
                 Case TYPE_TABLE
                     LoadTableColumns tbl, col, secIdx
+                    
+                Case TYPE_RESOURCES
+                    LoadTableColumns tbl, col, secIdx
 
             End Select
 
@@ -2164,6 +2256,10 @@ Private Sub WriteToSheet(ByVal ws As Worksheet)
                 End If
                 WriteTableToSheet ws, i, currentCol
                 currentCol = currentCol + tblCols
+                
+            Case TYPE_RESOURCES
+                WriteResourcesToSheet ws, i, currentCol
+                currentCol = currentCol + 3
 
         End Select
 
@@ -2193,12 +2289,17 @@ Private Function MaxSubDepth(ByVal secIdx As Long) As Long
 
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
+
         Dim parts() As String
         parts = Split(mSecItems(secIdx)(i), "|")
-        If UBound(parts) > 0 And parts(1) <> "" Then
-            MaxSubDepth = 1
-            Exit Function
+
+        If UBound(parts) > 0 Then
+            If parts(1) <> "" Then
+                MaxSubDepth = 1
+                Exit Function
+            End If
         End If
+
     Next i
 
     MaxSubDepth = 0
@@ -2271,7 +2372,14 @@ Private Sub WriteNestedToSheet(ByVal ws As Worksheet, _
 
         ws.Cells(r, startCol).Value = parts(0)
 
-        If UBound(parts) > 0 And parts(1) <> "" Then
+        Dim hasSubs As Boolean
+        hasSubs = False
+
+        If UBound(parts) > 0 Then
+            If parts(1) <> "" Then hasSubs = True
+        End If
+
+        If hasSubs Then
 
             Dim subs() As String
             subs = Split(parts(1), "~")
@@ -2338,6 +2446,43 @@ Private Sub WriteTableToSheet(ByVal ws As Worksheet, _
 
 ErrHandler:
     HandleFormError "WriteTableToSheet"
+
+End Sub
+
+Private Sub WriteResourcesToSheet(ByVal ws As Worksheet, _
+                                    ByVal secIdx As Long, _
+                                    ByVal startCol As Long)
+
+    On Error GoTo ErrHandler
+
+    ws.Cells(1, startCol).Value = mSecNames(secIdx)     ' "Additional Resources"
+    ws.Cells(1, startCol + 1).Value = "Table2"
+    ws.Cells(1, startCol + 2).Value = "Table3"
+
+    Dim r As Long
+    r = 2
+
+    Dim i As Long
+    For i = 1 To mSecItems(secIdx).count
+
+        Dim parts() As String
+        parts = Split(mSecItems(secIdx)(i), "|")
+
+        Dim c As Long
+        For c = 0 To 2
+            If c <= UBound(parts) Then
+                ws.Cells(r, startCol + c).Value = Trim(parts(c))
+            End If
+        Next c
+
+        r = r + 1
+
+    Next i
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "WriteResourcesToSheet"
 
 End Sub
 
