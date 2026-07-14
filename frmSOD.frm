@@ -1,12 +1,12 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
-   Caption         =   "SOD Form"
+   Caption         =   "SOD Data Enrty Form"
    ClientHeight    =   9420.001
-   ClientLeft      =   240
-   ClientTop       =   930
+   ClientLeft      =   360
+   ClientTop       =   1395
    ClientWidth     =   12165
    OleObjectBlob   =   "frmSOD.frx":0000
-   StartUpPosition =   1  'CenterOwner
+   StartUpPosition =   2  'CenterScreen
 End
 Attribute VB_Name = "frmSOD"
 Attribute VB_GlobalNameSpace = False
@@ -61,6 +61,8 @@ Private mLoading As Boolean          ' suppress change events during load
 
 Private mEditingItemIdx As Long      ' 0 = not editing, otherwise 1-based item index
 Private mEditingSubIdx As Long       ' 0 = not editing, otherwise 0-based sub-item index
+
+Private mEditingRowIdx As Long       ' 0 = not editing, otherwise 1-based row index
 
 '====================================================
 ' UNDO (single-level, scoped to the section it happened in)
@@ -420,6 +422,10 @@ Private Sub CommandButton1_Click()
 
 End Sub
 
+Private Sub fraContent_Click()
+
+End Sub
+
 Private Sub fraRowEditor_Click()
 
 End Sub
@@ -569,6 +575,10 @@ Private Sub ShowSection(ByVal idx As Long)
     btnAddSubItem.Caption = "+ Add"
     btnRemoveSubItem.Caption = "– Remove"
     btnEditSubItem.Caption = "Edit"
+    mEditingRowIdx = 0
+    btnAddRow.Caption = "+ Add"
+    btnRemoveRow.Caption = "– Remove"
+    btnEditRow.Caption = "Edit"
 
     lblSectionTitle.Caption = mSecNames(idx)
 
@@ -622,12 +632,19 @@ Private Sub HideAllControls()
 
     lblColCount.Visible = False
     spnColCount.Visible = False
-    lblRows.Visible = False
     lstRows.Visible = False
     btnAddRow.Visible = False
     btnRemoveRow.Visible = False
     lblRowEditor.Visible = False
     fraRowEditor.Visible = False
+    
+    lblResCol1.Visible = False
+    txtResCol1.Visible = False
+    lblResCol2.Visible = False
+    txtResCol2.Visible = False
+    lblResCol3.Visible = False
+    txtResCol3.Visible = False
+    btnEditRow.Visible = False
 
     Exit Sub
 
@@ -640,20 +657,31 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
 
     On Error GoTo ErrHandler
 
-    ' Fixed 3 columns - no column-count spinner needed
     If mSecCols(idx) = "" Then
         mSecCols(idx) = "col1~col2~col3"
     End If
 
-    lblRows.Visible = True
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
-    lblRowEditor.Visible = True
-    fraRowEditor.Visible = True
+
+    lblResCol1.Visible = True
+    txtResCol1.Visible = True
+    lblResCol2.Visible = True
+    txtResCol2.Visible = True
+    lblResCol3.Visible = True
+    txtResCol3.Visible = True
+    btnEditRow.Visible = True
+
+    txtResCol1.Text = ""
+    txtResCol2.Text = ""
+    txtResCol3.Text = ""
+
+    mEditingRowIdx = 0
+    btnAddRow.Caption = "+ Add"
+    btnRemoveRow.Caption = "– Remove"
 
     RefreshRowList idx
-    ClearRowEditor
 
     Exit Sub
 
@@ -760,7 +788,6 @@ Private Sub ShowTableSection(ByVal idx As Long)
     spnColCount.Value = colCount
     mLoading = False
 
-    lblRows.Visible = True
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
@@ -812,6 +839,72 @@ Private Sub spnColCount_Change()
 
 ErrHandler:
     HandleFormError "spnColCount_Change"
+
+End Sub
+
+Private Sub GenericAddRow()
+
+    On Error GoTo ErrHandler
+
+    If mSecCols(mCurrentSection) = "" Then
+        MsgBox "Set a column count before adding rows.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim cols() As String
+    cols = Split(mSecCols(mCurrentSection), "~")
+
+    Dim emptyRow As String
+    Dim i As Long
+    For i = 0 To UBound(cols)
+        If i = 0 Then
+            emptyRow = ""
+        Else
+            emptyRow = emptyRow & "|"
+        End If
+    Next i
+
+    mSecItems(mCurrentSection).Add emptyRow
+    RefreshRowList mCurrentSection
+
+    lstRows.ListIndex = lstRows.ListCount - 1
+    OpenRowEditor lstRows.ListCount - 1
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "GenericAddRow"
+
+End Sub
+
+Private Sub GenericRemoveRow()
+
+    On Error GoTo ErrHandler
+
+    Dim selIdx As Long
+    selIdx = lstRows.ListIndex
+
+    If selIdx < 0 Then
+        MsgBox "Select a row to remove.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim newCol As New Collection
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If i <> selIdx + 1 Then
+            newCol.Add mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+    Set mSecItems(mCurrentSection) = newCol
+
+    RefreshRowList mCurrentSection
+    ClearRowEditor
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "GenericRemoveRow"
 
 End Sub
 
@@ -893,29 +986,48 @@ Private Sub btnAddRow_Click()
 
     On Error GoTo ErrHandler
 
-    If mSecCols(mCurrentSection) = "" Then
-        MsgBox "Set a column count before adding rows.", vbExclamation
+    If mSecTypes(mCurrentSection) <> TYPE_RESOURCES Then
+        GenericAddRow
         Exit Sub
     End If
 
-    Dim cols() As String
-    cols = Split(mSecCols(mCurrentSection), "~")
+    If mEditingRowIdx > 0 Then
 
-    Dim emptyRow As String
-    Dim i As Long
-    For i = 0 To UBound(cols)
-        If i = 0 Then
-            emptyRow = ""
-        Else
-            emptyRow = emptyRow & "|"
+        ' EDIT MODE: this button is "Move Up"
+        If mEditingRowIdx <= 1 Then Exit Sub
+
+        SaveEditedRowTextInPlace
+        PushUndo
+
+        Set mSecItems(mCurrentSection) = _
+            SwapCollectionItems(mSecItems(mCurrentSection), mEditingRowIdx, mEditingRowIdx - 1)
+
+        mEditingRowIdx = mEditingRowIdx - 1
+
+        RefreshRowList mCurrentSection
+        lstRows.ListIndex = mEditingRowIdx - 1
+
+    Else
+
+        Dim col1 As String, col2 As String, col3 As String
+        col1 = Trim(txtResCol1.Text)
+        col2 = Trim(txtResCol2.Text)
+        col3 = Trim(txtResCol3.Text)
+
+        If col1 = "" And col2 = "" And col3 = "" Then
+            MsgBox "Enter at least one field before adding.", vbExclamation
+            Exit Sub
         End If
-    Next i
 
-    mSecItems(mCurrentSection).Add emptyRow
-    RefreshRowList mCurrentSection
+        mSecItems(mCurrentSection).Add col1 & "|" & col2 & "|" & col3
 
-    lstRows.ListIndex = lstRows.ListCount - 1
-    OpenRowEditor lstRows.ListCount - 1
+        txtResCol1.Text = ""
+        txtResCol2.Text = ""
+        txtResCol3.Text = ""
+
+        RefreshRowList mCurrentSection
+
+    End If
 
     Exit Sub
 
@@ -924,29 +1036,141 @@ ErrHandler:
 
 End Sub
 
-Private Sub btnRemoveRow_Click()
+Private Sub SaveEditedRowTextInPlace()
 
-    On Error GoTo ErrHandler
-
-    Dim selIdx As Long
-    selIdx = lstRows.ListIndex
-
-    If selIdx < 0 Then
-        MsgBox "Select a row to remove.", vbExclamation
-        Exit Sub
-    End If
+    Dim newRow As String
+    newRow = Trim(txtResCol1.Text) & "|" & Trim(txtResCol2.Text) & "|" & Trim(txtResCol3.Text)
 
     Dim newCol As New Collection
     Dim i As Long
     For i = 1 To mSecItems(mCurrentSection).count
-        If i <> selIdx + 1 Then
+        If i = mEditingRowIdx Then
+            newCol.Add newRow
+        Else
             newCol.Add mSecItems(mCurrentSection)(i)
         End If
     Next i
     Set mSecItems(mCurrentSection) = newCol
 
-    RefreshRowList mCurrentSection
-    ClearRowEditor
+End Sub
+
+Private Sub ExitRowEditMode()
+
+    mEditingRowIdx = 0
+    btnAddRow.Caption = "+ Add"
+    btnRemoveRow.Caption = "– Remove"
+    txtResCol1.Text = ""
+    txtResCol2.Text = ""
+    txtResCol3.Text = ""
+
+End Sub
+
+Private Sub btnEditRow_Click()
+
+    On Error GoTo ErrHandler
+
+    If mSecTypes(mCurrentSection) <> TYPE_RESOURCES Then Exit Sub
+
+    If mEditingRowIdx > 0 Then
+
+        ' CONFIRM
+        PushUndo
+        SaveEditedRowTextInPlace
+
+        Dim savedIdx As Long
+        savedIdx = mEditingRowIdx
+
+        ExitRowEditMode
+
+        RefreshRowList mCurrentSection
+        lstRows.ListIndex = savedIdx - 1
+
+    Else
+
+        ' ENTER edit mode
+        Dim selIdx As Long
+        selIdx = lstRows.ListIndex
+
+        If selIdx < 0 Then
+            MsgBox "Select a row to edit.", vbExclamation
+            Exit Sub
+        End If
+
+        Dim rowIdx As Long
+        rowIdx = selIdx + 1
+
+        Dim parts() As String
+        parts = Split(mSecItems(mCurrentSection)(rowIdx), "|")
+
+        txtResCol1.Text = IIf(UBound(parts) >= 0, parts(0), "")
+        txtResCol2.Text = IIf(UBound(parts) >= 1, parts(1), "")
+        txtResCol3.Text = IIf(UBound(parts) >= 2, parts(2), "")
+
+        txtResCol1.SetFocus
+
+        mEditingRowIdx = rowIdx
+        btnEditRow.Caption = "Confirm"
+        btnAddRow.Caption = "Move Up"
+        btnRemoveRow.Caption = "Move Down"
+
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnEditRow_Click"
+
+End Sub
+
+Private Sub btnRemoveRow_Click()
+
+    On Error GoTo ErrHandler
+
+    If mSecTypes(mCurrentSection) <> TYPE_RESOURCES Then
+        GenericRemoveRow
+        Exit Sub
+    End If
+
+    If mEditingRowIdx > 0 Then
+
+        ' EDIT MODE: this button is "Move Down"
+        If mEditingRowIdx >= mSecItems(mCurrentSection).count Then Exit Sub
+
+        SaveEditedRowTextInPlace
+        PushUndo
+
+        Set mSecItems(mCurrentSection) = _
+            SwapCollectionItems(mSecItems(mCurrentSection), mEditingRowIdx, mEditingRowIdx + 1)
+
+        mEditingRowIdx = mEditingRowIdx + 1
+
+        RefreshRowList mCurrentSection
+        lstRows.ListIndex = mEditingRowIdx - 1
+
+    Else
+
+        Dim selIdx As Long
+        selIdx = lstRows.ListIndex
+
+        If selIdx < 0 Then
+            MsgBox "Select a row to remove.", vbExclamation
+            Exit Sub
+        End If
+
+        PushUndo
+
+        Dim newCol As New Collection
+        Dim i As Long
+        For i = 1 To mSecItems(mCurrentSection).count
+            If i <> selIdx + 1 Then
+                newCol.Add mSecItems(mCurrentSection)(i)
+            End If
+        Next i
+        Set mSecItems(mCurrentSection) = newCol
+
+        RefreshRowList mCurrentSection
+
+    End If
 
     Exit Sub
 
@@ -962,9 +1186,15 @@ Private Sub lstRows_Click()
     If mLoading Then Exit Sub
     If lstRows.ListIndex < 0 Then Exit Sub
 
-    SaveRowEditor
-    RefreshRowList mCurrentSection
+    If mSecTypes(mCurrentSection) = TYPE_RESOURCES Then
+        ' Resources doesn't auto-save/rebuild on row switch - selecting a
+        ' row just selects it; editing is explicit via the Edit button.
+        Exit Sub
+    End If
 
+    ' Generic TYPE_TABLE sections still use the dynamic fraRowEditor,
+    ' which does need a save-and-reload on row switch.
+    SaveRowEditor
     OpenRowEditor lstRows.ListIndex
 
     Exit Sub
@@ -2160,7 +2390,9 @@ Private Sub LoadTableColumns(ByVal tbl As ListObject, _
         Next c
 
         If Replace(rowStr, "|", "") <> "" Then
-            mSecItems(secIdx).Add rowStr
+            If Not IsHeaderLookalikeRow(secIdx, rowStr) Then
+                mSecItems(secIdx).Add rowStr
+            End If
         End If
 
     Next r
@@ -2171,6 +2403,23 @@ ErrHandler:
     HandleFormError "LoadTableColumns"
 
 End Sub
+
+Private Function IsHeaderLookalikeRow(ByVal secIdx As Long, ByVal rowStr As String) As Boolean
+
+    If mSecTypes(secIdx) <> TYPE_RESOURCES Then Exit Function
+
+    Dim parts() As String
+    parts = Split(rowStr, "|")
+
+    If UBound(parts) < 2 Then Exit Function
+
+    If Trim(parts(0)) = SEC_RESOURCES_COL1 And _
+       Trim(parts(1)) = SEC_RESOURCES_COL2 And _
+       Trim(parts(2)) = SEC_RESOURCES_COL3 Then
+        IsHeaderLookalikeRow = True
+    End If
+
+End Function
 
 '====================================================
 ' SAVE TO SHEET
@@ -2494,7 +2743,9 @@ Private Sub btnCancel_Click()
 
     On Error GoTo ErrHandler
 
-    Unload Me
+    If ConfirmDiscard() Then
+        Unload Me
+    End If
 
     Exit Sub
 
@@ -2503,3 +2754,42 @@ ErrHandler:
 
 End Sub
 
+Private Function ConfirmDiscard() As Boolean
+
+    On Error GoTo ErrHandler
+
+    Dim resp As VbMsgBoxResult
+    resp = MsgBox("Any unsaved changes will be lost." & vbCrLf & vbCrLf & _
+                  "Are you sure you want to close without saving?", _
+                  vbYesNo + vbExclamation, "Discard Changes?")
+
+    ConfirmDiscard = (resp = vbYes)
+    Exit Function
+
+ErrHandler:
+    HandleFormError "ConfirmDiscard"
+    ConfirmDiscard = False
+
+End Function
+
+Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
+
+    On Error GoTo ErrHandler
+
+    ' CloseMode 0 = user clicked the X button
+    ' Other modes (1=Unload statement, etc.) are triggered by our own code,
+    ' e.g. btnCancel_Click's Unload Me or a successful Save - don't
+    ' re-prompt in those cases since btnCancel_Click already confirmed,
+    ' and Save shouldn't prompt at all.
+    If CloseMode = 0 Then
+        If Not ConfirmDiscard() Then
+            Cancel = True
+        End If
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UserForm_QueryClose"
+
+End Sub
