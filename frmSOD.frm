@@ -644,7 +644,10 @@ Private Sub HideAllControls()
     txtResCol2.Visible = False
     lblResCol3.Visible = False
     txtResCol3.Visible = False
+<<<<<<< Updated upstream
     btnEditRow.Visible = False
+=======
+>>>>>>> Stashed changes
 
     Exit Sub
 
@@ -671,7 +674,10 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
     txtResCol2.Visible = True
     lblResCol3.Visible = True
     txtResCol3.Visible = True
+<<<<<<< Updated upstream
     btnEditRow.Visible = True
+=======
+>>>>>>> Stashed changes
 
     txtResCol1.Text = ""
     txtResCol2.Text = ""
