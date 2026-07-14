@@ -628,7 +628,6 @@ Private Sub HideAllControls()
 
     lblColCount.Visible = False
     spnColCount.Visible = False
-    lblRows.Visible = False
     lstRows.Visible = False
     btnAddRow.Visible = False
     btnRemoveRow.Visible = False
@@ -641,6 +640,7 @@ Private Sub HideAllControls()
     txtResCol2.Visible = False
     lblResCol3.Visible = False
     txtResCol3.Visible = False
+    btnEditRow.Visible = False
 
     Exit Sub
 
@@ -657,7 +657,6 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
         mSecCols(idx) = "col1~col2~col3"
     End If
 
-    lblRows.Visible = True
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
@@ -668,6 +667,7 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
     txtResCol2.Visible = True
     lblResCol3.Visible = True
     txtResCol3.Visible = True
+    btnEditRow.Visible = True
 
     txtResCol1.Text = ""
     txtResCol2.Text = ""
@@ -784,7 +784,6 @@ Private Sub ShowTableSection(ByVal idx As Long)
     spnColCount.Value = colCount
     mLoading = False
 
-    lblRows.Visible = True
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
