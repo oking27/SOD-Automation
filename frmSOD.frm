@@ -61,8 +61,9 @@ Private mLoading As Boolean          ' suppress change events during load
 
 Private mEditingItemIdx As Long      ' 0 = not editing, otherwise 1-based item index
 Private mEditingSubIdx As Long       ' 0 = not editing, otherwise 0-based sub-item index
-
 Private mEditingRowIdx As Long       ' 0 = not editing, otherwise 1-based row index
+
+Private mJustSaved As Boolean
 
 '====================================================
 ' UNDO (single-level, scoped to the section it happened in)
@@ -77,6 +78,8 @@ Private mUndoCols As String
 Private Sub PushUndo()
 
     On Error GoTo ErrHandler
+    
+    mJustSaved = False
 
     mUndoSecIdx = mCurrentSection
     Set mUndoItems = CloneCollection(mSecItems(mCurrentSection))
@@ -445,6 +448,8 @@ Private Sub UserForm_Initialize()
     mLoading = True
     mEditingItemIdx = 0
     mEditingSubIdx = -1
+    
+    mJustSaved = False
 
     InitSections
     RefreshSectionList
@@ -2447,6 +2452,8 @@ Private Sub btnSave_Click()
     WriteToSheet ws
 
     MsgBox "Saved to sheet successfully.", vbInformation, "SOD Form"
+    
+    mJustSaved = True
 
     Exit Sub
 
@@ -2505,7 +2512,7 @@ Private Sub WriteToSheet(ByVal ws As Worksheet)
                 End If
                 WriteTableToSheet ws, i, currentCol
                 currentCol = currentCol + tblCols
-                
+
             Case TYPE_RESOURCES
                 WriteResourcesToSheet ws, i, currentCol
                 currentCol = currentCol + 3
@@ -2514,10 +2521,22 @@ Private Sub WriteToSheet(ByVal ws As Worksheet)
 
     Next i
 
-    Dim lastRow As Long
     Dim lastCol As Long
-    lastRow = ws.Cells(ws.Rows.count, 1).End(-4162).Row    ' xlUp
-    lastCol = ws.Cells(1, ws.Columns.count).End(-4159).Column  ' xlToLeft
+    lastCol = currentCol - 1
+
+    ' Find the true last used row by checking EVERY column, not just column 1
+    Dim lastRow As Long
+    Dim maxRow As Long
+    maxRow = 1
+
+    Dim c As Long
+    For c = 1 To lastCol
+        Dim colLastRow As Long
+        colLastRow = ws.Cells(ws.Rows.count, c).End(-4162).Row   ' xlUp
+        If colLastRow > maxRow Then maxRow = colLastRow
+    Next c
+
+    lastRow = maxRow
 
     If lastRow >= 2 Then
         Dim tblRange As Range
@@ -2708,8 +2727,15 @@ Private Sub WriteResourcesToSheet(ByVal ws As Worksheet, _
     ws.Cells(1, startCol + 1).Value = "Table2"
     ws.Cells(1, startCol + 2).Value = "Table3"
 
+    ' Row 2 = the Word table's header row - written as literal data,
+    ' since PopulateSOD builds the Word table from data rows, not
+    ' from these Excel column names.
+    ws.Cells(2, startCol).Value = SEC_RESOURCES_COL1
+    ws.Cells(2, startCol + 1).Value = SEC_RESOURCES_COL2
+    ws.Cells(2, startCol + 2).Value = SEC_RESOURCES_COL3
+
     Dim r As Long
-    r = 2
+    r = 3   ' actual data starts one row lower now
 
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
@@ -2758,6 +2784,11 @@ Private Function ConfirmDiscard() As Boolean
 
     On Error GoTo ErrHandler
 
+    If mJustSaved Then
+        ConfirmDiscard = True
+        Exit Function
+    End If
+
     Dim resp As VbMsgBoxResult
     resp = MsgBox("Any unsaved changes will be lost." & vbCrLf & vbCrLf & _
                   "Are you sure you want to close without saving?", _
@@ -2771,5 +2802,3 @@ ErrHandler:
     ConfirmDiscard = False
 
 End Function
-
-
