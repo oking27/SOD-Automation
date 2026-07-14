@@ -1,6 +1,6 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
-   Caption         =   "SOD Data Enrty Form"
+   Caption         =   "SOD Editor"
    ClientHeight    =   9420.001
    ClientLeft      =   360
    ClientTop       =   1395
@@ -644,10 +644,7 @@ Private Sub HideAllControls()
     txtResCol2.Visible = False
     lblResCol3.Visible = False
     txtResCol3.Visible = False
-<<<<<<< Updated upstream
     btnEditRow.Visible = False
-=======
->>>>>>> Stashed changes
 
     Exit Sub
 
@@ -674,10 +671,7 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
     txtResCol2.Visible = True
     lblResCol3.Visible = True
     txtResCol3.Visible = True
-<<<<<<< Updated upstream
     btnEditRow.Visible = True
-=======
->>>>>>> Stashed changes
 
     txtResCol1.Text = ""
     txtResCol2.Text = ""
@@ -2778,24 +2772,4 @@ ErrHandler:
 
 End Function
 
-Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
 
-    On Error GoTo ErrHandler
-
-    ' CloseMode 0 = user clicked the X button
-    ' Other modes (1=Unload statement, etc.) are triggered by our own code,
-    ' e.g. btnCancel_Click's Unload Me or a successful Save - don't
-    ' re-prompt in those cases since btnCancel_Click already confirmed,
-    ' and Save shouldn't prompt at all.
-    If CloseMode = 0 Then
-        If Not ConfirmDiscard() Then
-            Cancel = True
-        End If
-    End If
-
-    Exit Sub
-
-ErrHandler:
-    HandleFormError "UserForm_QueryClose"
-
-End Sub
