@@ -1,10 +1,10 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
    Caption         =   "SOD Editor"
-   ClientHeight    =   9420.001
+   ClientHeight    =   9180.001
    ClientLeft      =   360
    ClientTop       =   1395
-   ClientWidth     =   12165
+   ClientWidth     =   11040
    OleObjectBlob   =   "frmSOD.frx":0000
    StartUpPosition =   2  'CenterScreen
 End
@@ -744,7 +744,10 @@ Private Sub ShowListSection(ByVal idx As Long)
     lstItems.Clear
     Dim i As Long
     For i = 1 To mSecItems(idx).count
-        lstItems.AddItem mSecItems(idx)(i)
+        Dim displayVal As String
+        displayVal = mSecItems(idx)(i)
+        If Len(displayVal) > 90 Then displayVal = Left(displayVal, 87) & "..."
+        lstItems.AddItem displayVal
     Next i
 
     lstItems.Visible = True
@@ -1780,7 +1783,7 @@ Private Sub RefreshSubItems()
         Dim txt As String
         txt = Trim(subs(i))
         If txt <> "" Then
-            If Len(txt) > 50 Then txt = Left(txt, 47) & "..."
+            If Len(txt) > 90 Then txt = Left(txt, 87) & "..."
             lstSubItems.AddItem txt
         End If
     Next i
@@ -1819,18 +1822,43 @@ Private Sub btnAddItem_Click()
 
     Else
 
-        ' NORMAL MODE: standard Add
-        Dim newItem As String
-        newItem = Trim(txtItem.Text)
+        ' NORMAL MODE: standard Add - split on line breaks so a paste
+        ' of multiple lines becomes multiple items in one click
+        Dim rawLines() As String
+        rawLines = Split(txtItem.Text, vbCrLf)
 
-        If newItem = "" Then
-            MsgBox "Please type an item before adding.", vbExclamation
+        Dim addedAny As Boolean
+        addedAny = False
+
+        Dim lineIdx As Long
+        For lineIdx = 0 To UBound(rawLines)
+
+            Dim cleanLine As String
+            cleanLine = Trim(rawLines(lineIdx))
+
+            If cleanLine <> "" Then
+                mSecItems(mCurrentSection).Add cleanLine
+                lstItems.AddItem cleanLine
+                addedAny = True
+            End If
+
+        Next lineIdx
+
+        If Not addedAny Then
+            MsgBox "Please type or paste at least one item before adding.", vbExclamation
             Exit Sub
         End If
-
-        mSecItems(mCurrentSection).Add newItem
-        lstItems.AddItem newItem
+        
         txtItem.Text = ""
+
+        ' Select the last item added (handles both single-add and
+        ' multi-line paste-splitting) so sub-items can be added immediately
+        lstItems.ListIndex = lstItems.ListCount - 1
+
+        If mSecTypes(mCurrentSection) = TYPE_NESTED Then
+            UpdateSubItemsLabel
+            RefreshSubItems
+        End If
 
     End If
 
@@ -1954,13 +1982,13 @@ Private Sub btnAddSubItem_Click()
 
     Else
 
-        Dim newSub As String
-        newSub = Trim(txtSubItem.Text)
+        ' ADD mode - split pasted text on line breaks, each line becomes
+        ' its own sub-item
+        Dim rawLines() As String
+        rawLines = Split(txtSubItem.Text, vbCrLf)
 
-        If newSub = "" Then
-            MsgBox "Please type a sub-item before adding.", vbExclamation
-            Exit Sub
-        End If
+        Dim addedAny As Boolean
+        addedAny = False
 
         Dim current As String
         current = mSecItems(mCurrentSection)(itemIdx)
@@ -1968,11 +1996,47 @@ Private Sub btnAddSubItem_Click()
         Dim parts2() As String
         parts2 = Split(current, "|")
 
-        If UBound(parts2) = 0 Then
-            current = parts2(0) & "|" & newSub
+        Dim mainPart As String
+        mainPart = parts2(0)
+
+        Dim existingSubs As String
+        If UBound(parts2) >= 1 Then
+            existingSubs = parts2(1)
         Else
-            current = parts2(0) & "|" & parts2(1) & "~" & newSub
+            existingSubs = ""
         End If
+
+        Dim lineIdx As Long
+        For lineIdx = 0 To UBound(rawLines)
+
+            Dim cleanLine As String
+            cleanLine = Trim(rawLines(lineIdx))
+
+            If cleanLine <> "" Then
+
+                If existingSubs = "" Then
+                    existingSubs = cleanLine
+                Else
+                    existingSubs = existingSubs & "~" & cleanLine
+                End If
+
+                Dim displayVal As String
+                displayVal = cleanLine
+                If Len(displayVal) > 90 Then displayVal = Left(displayVal, 87) & "..."
+                lstSubItems.AddItem displayVal
+
+                addedAny = True
+
+            End If
+
+        Next lineIdx
+
+        If Not addedAny Then
+            MsgBox "Please type or paste at least one sub-item before adding.", vbExclamation
+            Exit Sub
+        End If
+
+        current = mainPart & "|" & existingSubs
 
         Dim newCol2 As New Collection
         Dim j As Long
@@ -1985,12 +2049,9 @@ Private Sub btnAddSubItem_Click()
         Next j
         Set mSecItems(mCurrentSection) = newCol2
 
-        Dim displayVal As String
-        displayVal = newSub
-        If Len(displayVal) > 50 Then displayVal = Left(displayVal, 47) & "..."
-        lstSubItems.AddItem displayVal
-
         txtSubItem.Text = ""
+        ' Select the last sub-item added
+        lstSubItems.ListIndex = lstSubItems.ListCount - 1
 
     End If
 
