@@ -212,6 +212,7 @@ Private Sub btnItemUp_Click()
 
     RefreshItemsDisplay
     lstItems.ListIndex = selIdx - 1
+    UpdateSubItemsLabel
     If mSecTypes(mCurrentSection) = TYPE_NESTED Then RefreshSubItems
 
     Exit Sub
@@ -237,6 +238,7 @@ Private Sub btnItemDown_Click()
 
     RefreshItemsDisplay
     lstItems.ListIndex = selIdx + 1
+    UpdateSubItemsLabel
     If mSecTypes(mCurrentSection) = TYPE_NESTED Then RefreshSubItems
 
     Exit Sub
@@ -461,6 +463,7 @@ Private Sub UserForm_Initialize()
 
     mLoading = False
     RefreshUndoButton
+    UpdateFormCaption
 
     Exit Sub
 
@@ -510,6 +513,31 @@ Private Sub InitSections()
 
 ErrHandler:
     HandleFormError "InitSections"
+
+End Sub
+
+Private Sub UpdateFormCaption()
+
+    On Error GoTo ErrHandler
+
+    Dim titleSecIdx As Long
+    titleSecIdx = FindSection(SEC_TITLE)
+
+    Dim titleText As String
+    If titleSecIdx > 0 Then
+        titleText = Trim(mSecData(titleSecIdx))
+    End If
+
+    If titleText <> "" Then
+        Me.Caption = "SOD Editor: " & titleText
+    Else
+        Me.Caption = "SOD Editor"
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateFormCaption"
 
 End Sub
 
@@ -762,6 +790,7 @@ Private Sub ShowNestedSection(ByVal idx As Long)
     If lstItems.ListCount > 0 Then
         lstItems.ListIndex = 0
         RefreshSubItems
+        UpdateSubItemsLabel
     End If
 
     Exit Sub
@@ -1628,10 +1657,11 @@ Private Sub SaveCurrentSection()
 
         Case TYPE_PLAIN
             mSecData(mCurrentSection) = txtContent.Text
+            If mCurrentSection = FindSection(SEC_TITLE) Then UpdateFormCaption
 
         Case TYPE_TABLE
             SaveRowEditor
-            
+
         Case TYPE_RESOURCES
             SaveRowEditor
 
@@ -1644,20 +1674,19 @@ ErrHandler:
 
 End Sub
 
-Private Sub txtContent_Enter()
+Private Sub txtContent_Change()
 
     On Error GoTo ErrHandler
 
     If mLoading Then Exit Sub
-    If mCurrentSection < 1 Then Exit Sub
-    If mSecTypes(mCurrentSection) <> TYPE_PLAIN Then Exit Sub
-
-    PushUndo
+    If mCurrentSection = FindSection(SEC_TITLE) Then
+        Me.Caption = IIf(Trim(txtContent.Text) <> "", "SOD Editor: " & Trim(txtContent.Text), "SOD Editor")
+    End If
 
     Exit Sub
 
 ErrHandler:
-    HandleFormError "txtContent_Enter"
+    HandleFormError "txtContent_Change"
 
 End Sub
 
@@ -1675,12 +1704,45 @@ Private Sub lstItems_Click()
 
     lstSubItems.Clear
     txtSubItem.Text = ""
+    UpdateSubItemsLabel
     RefreshSubItems
 
     Exit Sub
 
 ErrHandler:
     HandleFormError "lstItems_Click"
+
+End Sub
+
+Private Sub UpdateSubItemsLabel()
+
+    On Error GoTo ErrHandler
+
+    Dim selIdx As Long
+    selIdx = lstItems.ListIndex
+
+    If selIdx < 0 Then
+        lblSubItems.Caption = "Sub-items:"
+        Exit Sub
+    End If
+
+    Dim itemIdx As Long
+    itemIdx = selIdx + 1
+
+    If itemIdx > mSecItems(mCurrentSection).count Then
+        lblSubItems.Caption = "Sub-items:"
+        Exit Sub
+    End If
+
+    Dim mainVal As String
+    mainVal = Split(mSecItems(mCurrentSection)(itemIdx), "|")(0)
+
+    lblSubItems.Caption = mainVal & ":"
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateSubItemsLabel"
 
 End Sub
 
