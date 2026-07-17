@@ -57,7 +57,7 @@ Private Const ROLE_INDENT As Long = 24       ' Roles helper-column indent (point
 
 ' --- headers/footers ---
 Private Const HEADER_TEXT As String = "Concrete Results. Civil Solutions."
-Private Const LOGO_PATH As String = "C:\Path\To\Your\Logo.png"  ' update this path
+Private Const LOGO_PATH As String = "C:\Users\OliviaKing\OneDrive - Gregory Construction Services\Desktop\greg_logo.png"  ' update this path
 Private Const LOGO_WIDTH_FIRST_IN As Single = 2.4
 Private Const LOGO_HEIGHT_FIRST_IN As Single = 0.8
 Private Const LOGO_WIDTH_OTHER_IN As Single = 1.5
@@ -910,7 +910,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
     With hdr.Range.Paragraphs.Last.Range
         .Font.name = "Bebas Neue"
         .Font.Size = 12.5
-        .Font.Spacing = 1.5
+        .Font.Spacing = 1.25
         .ParagraphFormat.Alignment = wdAlignParagraphCenter
         .ParagraphFormat.SpaceBefore = 0
         .ParagraphFormat.SpaceAfter = 6

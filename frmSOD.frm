@@ -3,7 +3,7 @@ Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD
    Caption         =   "SOD Editor"
    ClientHeight    =   9180.001
    ClientLeft      =   360
-   ClientTop       =   1395
+   ClientTop       =   1398
    ClientWidth     =   11040
    OleObjectBlob   =   "frmSOD.frx":0000
    StartUpPosition =   2  'CenterScreen
@@ -539,6 +539,10 @@ Private Sub UpdateFormCaption()
 ErrHandler:
     HandleFormError "UpdateFormCaption"
 
+End Sub
+
+Public Sub OpenSODEditor()
+    frmSOD.Show
 End Sub
 
 '====================================================
