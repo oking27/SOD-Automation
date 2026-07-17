@@ -1,10 +1,10 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
    Caption         =   "SOD Editor"
-   ClientHeight    =   9180.001
-   ClientLeft      =   360
-   ClientTop       =   1398
-   ClientWidth     =   11040
+   ClientHeight    =   7206
+   ClientLeft      =   312
+   ClientTop       =   1182
+   ClientWidth     =   11034
    OleObjectBlob   =   "frmSOD.frx":0000
    StartUpPosition =   2  'CenterScreen
 End
@@ -33,6 +33,12 @@ Private Const SEC_RESOURCES As String = "Additional Resources"
 Private Const SEC_RESOURCES_COL1 As String = "Resource Type"
 Private Const SEC_RESOURCES_COL2 As String = "List or Document Link"
 Private Const SEC_RESOURCES_COL3 As String = "Document Number"
+
+' Dictionary
+Private Const SEC_DICTIONARY As String = "Dictionary"
+Private Const SEC_DICT_COL1 As String = "Term"
+Private Const SEC_DICT_COL2 As String = "Definition"
+Private Const TYPE_DICTIONARY As String = "DICTIONARY"   ' fixed 2-column table
 
 ' Section types
 Private Const TYPE_PLAIN As String = "PLAIN"           ' single TextBox
@@ -64,6 +70,9 @@ Private mEditingSubIdx As Long       ' 0 = not editing, otherwise 0-based sub-it
 Private mEditingRowIdx As Long       ' 0 = not editing, otherwise 1-based row index
 
 Private mJustSaved As Boolean
+
+Private mSecHasHeader() As Boolean  ' tables
+Private mSecHeaderRow() As String
 
 '====================================================
 ' UNDO (single-level, scoped to the section it happened in)
@@ -477,7 +486,7 @@ Private Sub InitSections()
 
     On Error GoTo ErrHandler
 
-    mSecCount = 8
+    mSecCount = 9
     ReDim mSecNames(1 To mSecCount)
     ReDim mSecTypes(1 To mSecCount)
     ReDim mSecData(1 To mSecCount)
@@ -487,20 +496,23 @@ Private Sub InitSections()
     mSecNames(1) = SEC_TITLE
     mSecNames(2) = SEC_PURPOSE
     mSecNames(3) = SEC_SCOPE
-    mSecNames(4) = SEC_ROLES
-    mSecNames(5) = SEC_OBJECTIVES
-    mSecNames(6) = SEC_STEPS
-    mSecNames(7) = SEC_KPIS
-    mSecNames(8) = SEC_RESOURCES
+    mSecNames(4) = SEC_DICTIONARY
+    mSecNames(5) = SEC_ROLES
+    mSecNames(6) = SEC_OBJECTIVES
+    mSecNames(7) = SEC_STEPS
+    mSecNames(8) = SEC_KPIS
+    mSecNames(9) = SEC_RESOURCES
 
     mSecTypes(1) = TYPE_PLAIN
     mSecTypes(2) = TYPE_PLAIN
     mSecTypes(3) = TYPE_PLAIN
-    mSecTypes(4) = TYPE_NESTED
-    mSecTypes(5) = TYPE_LIST
-    mSecTypes(6) = TYPE_NESTED
-    mSecTypes(7) = TYPE_LIST
-    mSecTypes(8) = TYPE_RESOURCES
+    mSecTypes(4) = TYPE_DICTIONARY
+    mSecTypes(5) = TYPE_NESTED
+    mSecTypes(6) = TYPE_LIST
+    mSecTypes(7) = TYPE_NESTED
+    mSecTypes(8) = TYPE_LIST
+    mSecTypes(9) = TYPE_RESOURCES
+
 
     Dim i As Long
     For i = 1 To mSecCount
@@ -638,6 +650,9 @@ Private Sub ShowSection(ByVal idx As Long)
         Case TYPE_RESOURCES
             ShowResourcesSection idx
             
+        Case TYPE_DICTIONARY
+            ShowDictionarySection idx
+            
     End Select
 
     mLoading = False
@@ -673,7 +688,6 @@ Private Sub HideAllControls()
     btnAddRow.Visible = False
     btnRemoveRow.Visible = False
     lblRowEditor.Visible = False
-    fraRowEditor.Visible = False
     
     lblResCol1.Visible = False
     txtResCol1.Visible = False
@@ -682,6 +696,11 @@ Private Sub HideAllControls()
     lblResCol3.Visible = False
     txtResCol3.Visible = False
     btnEditRow.Visible = False
+    
+    lblDictCol1.Visible = False
+    txtDictCol1.Visible = False
+    lblDictCol2.Visible = False
+    txtDictCol2.Visible = False
 
     Exit Sub
 
@@ -804,6 +823,40 @@ Private Sub ShowNestedSection(ByVal idx As Long)
 
 ErrHandler:
     HandleFormError "ShowNestedSection"
+
+End Sub
+
+Private Sub ShowDictionarySection(ByVal idx As Long)
+
+    On Error GoTo ErrHandler
+
+    If mSecCols(idx) = "" Then
+        mSecCols(idx) = "col1~col2"
+    End If
+
+    lstRows.Visible = True
+    btnAddRow.Visible = True
+    btnRemoveRow.Visible = True
+    btnEditRow.Visible = True
+
+    lblDictCol1.Visible = True
+    txtDictCol1.Visible = True
+    lblDictCol2.Visible = True
+    txtDictCol2.Visible = True
+
+    txtDictCol1.Text = ""
+    txtDictCol2.Text = ""
+
+    mEditingRowIdx = 0
+    btnAddRow.Caption = "+ Add"
+    btnRemoveRow.Caption = "- Remove"
+
+    RefreshRowList idx
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ShowDictionarySection"
 
 End Sub
 
@@ -1027,14 +1080,16 @@ Private Sub btnAddRow_Click()
 
     On Error GoTo ErrHandler
 
-    If mSecTypes(mCurrentSection) <> TYPE_RESOURCES Then
+    Dim isFixed As Boolean
+    isFixed = (mSecTypes(mCurrentSection) = TYPE_RESOURCES Or mSecTypes(mCurrentSection) = TYPE_DICTIONARY)
+
+    If Not isFixed Then
         GenericAddRow
         Exit Sub
     End If
 
     If mEditingRowIdx > 0 Then
 
-        ' EDIT MODE: this button is "Move Up"
         If mEditingRowIdx <= 1 Then Exit Sub
 
         SaveEditedRowTextInPlace
@@ -1050,23 +1105,49 @@ Private Sub btnAddRow_Click()
 
     Else
 
-        Dim col1 As String, col2 As String, col3 As String
-        col1 = Trim(txtResCol1.Text)
-        col2 = Trim(txtResCol2.Text)
-        col3 = Trim(txtResCol3.Text)
+        Dim newRowStr As String
 
-        If col1 = "" And col2 = "" And col3 = "" Then
-            MsgBox "Enter at least one field before adding.", vbExclamation
-            Exit Sub
+        If mSecTypes(mCurrentSection) = TYPE_DICTIONARY Then
+
+            Dim dCol1 As String, dCol2 As String
+            dCol1 = Trim(txtDictCol1.Text)
+            dCol2 = Trim(txtDictCol2.Text)
+
+            If dCol1 = "" And dCol2 = "" Then
+                MsgBox "Enter at least one field before adding.", vbExclamation
+                Exit Sub
+            End If
+
+            newRowStr = dCol1 & "|" & dCol2
+
+            txtDictCol1.Text = ""
+            txtDictCol2.Text = ""
+
+        Else
+
+            Dim col1 As String, col2 As String, col3 As String
+            col1 = Trim(txtResCol1.Text)
+            col2 = Trim(txtResCol2.Text)
+            col3 = Trim(txtResCol3.Text)
+
+            If col1 = "" And col2 = "" And col3 = "" Then
+                MsgBox "Enter at least one field before adding.", vbExclamation
+                Exit Sub
+            End If
+
+            newRowStr = col1 & "|" & col2 & "|" & col3
+
+            txtResCol1.Text = ""
+            txtResCol2.Text = ""
+            txtResCol3.Text = ""
+
         End If
 
-        mSecItems(mCurrentSection).Add col1 & "|" & col2 & "|" & col3
+        mSecItems(mCurrentSection).Add newRowStr
 
-        txtResCol1.Text = ""
-        txtResCol2.Text = ""
-        txtResCol3.Text = ""
-
+        ' Select the newly added row by default
         RefreshRowList mCurrentSection
+        lstRows.ListIndex = lstRows.ListCount - 1
 
     End If
 
@@ -1080,7 +1161,12 @@ End Sub
 Private Sub SaveEditedRowTextInPlace()
 
     Dim newRow As String
-    newRow = Trim(txtResCol1.Text) & "|" & Trim(txtResCol2.Text) & "|" & Trim(txtResCol3.Text)
+
+    If mSecTypes(mCurrentSection) = TYPE_DICTIONARY Then
+        newRow = Trim(txtDictCol1.Text) & "|" & Trim(txtDictCol2.Text)
+    Else
+        newRow = Trim(txtResCol1.Text) & "|" & Trim(txtResCol2.Text) & "|" & Trim(txtResCol3.Text)
+    End If
 
     Dim newCol As New Collection
     Dim i As Long
@@ -1099,10 +1185,12 @@ Private Sub ExitRowEditMode()
 
     mEditingRowIdx = 0
     btnAddRow.Caption = "+ Add"
-    btnRemoveRow.Caption = "– Remove"
+    btnRemoveRow.Caption = "- Remove"
     txtResCol1.Text = ""
     txtResCol2.Text = ""
     txtResCol3.Text = ""
+    txtDictCol1.Text = ""
+    txtDictCol2.Text = ""
 
 End Sub
 
@@ -1110,11 +1198,13 @@ Private Sub btnEditRow_Click()
 
     On Error GoTo ErrHandler
 
-    If mSecTypes(mCurrentSection) <> TYPE_RESOURCES Then Exit Sub
+    Dim isFixed As Boolean
+    isFixed = (mSecTypes(mCurrentSection) = TYPE_RESOURCES Or mSecTypes(mCurrentSection) = TYPE_DICTIONARY)
+
+    If Not isFixed Then Exit Sub
 
     If mEditingRowIdx > 0 Then
 
-        ' CONFIRM
         PushUndo
         SaveEditedRowTextInPlace
 
@@ -1128,7 +1218,6 @@ Private Sub btnEditRow_Click()
 
     Else
 
-        ' ENTER edit mode
         Dim selIdx As Long
         selIdx = lstRows.ListIndex
 
@@ -1143,11 +1232,16 @@ Private Sub btnEditRow_Click()
         Dim parts() As String
         parts = Split(mSecItems(mCurrentSection)(rowIdx), "|")
 
-        txtResCol1.Text = IIf(UBound(parts) >= 0, parts(0), "")
-        txtResCol2.Text = IIf(UBound(parts) >= 1, parts(1), "")
-        txtResCol3.Text = IIf(UBound(parts) >= 2, parts(2), "")
-
-        txtResCol1.SetFocus
+        If mSecTypes(mCurrentSection) = TYPE_DICTIONARY Then
+            txtDictCol1.Text = IIf(UBound(parts) >= 0, parts(0), "")
+            txtDictCol2.Text = IIf(UBound(parts) >= 1, parts(1), "")
+            txtDictCol1.SetFocus
+        Else
+            txtResCol1.Text = IIf(UBound(parts) >= 0, parts(0), "")
+            txtResCol2.Text = IIf(UBound(parts) >= 1, parts(1), "")
+            txtResCol3.Text = IIf(UBound(parts) >= 2, parts(2), "")
+            txtResCol1.SetFocus
+        End If
 
         mEditingRowIdx = rowIdx
         btnEditRow.Caption = "Confirm"
@@ -1167,14 +1261,16 @@ Private Sub btnRemoveRow_Click()
 
     On Error GoTo ErrHandler
 
-    If mSecTypes(mCurrentSection) <> TYPE_RESOURCES Then
+    Dim isFixed As Boolean
+    isFixed = (mSecTypes(mCurrentSection) = TYPE_RESOURCES Or mSecTypes(mCurrentSection) = TYPE_DICTIONARY)
+
+    If Not isFixed Then
         GenericRemoveRow
         Exit Sub
     End If
 
     If mEditingRowIdx > 0 Then
 
-        ' EDIT MODE: this button is "Move Down"
         If mEditingRowIdx >= mSecItems(mCurrentSection).count Then Exit Sub
 
         SaveEditedRowTextInPlace
@@ -1670,6 +1766,9 @@ Private Sub SaveCurrentSection()
             SaveRowEditor
 
         Case TYPE_RESOURCES
+            SaveRowEditor
+            
+        Case TYPE_DICTIONARY
             SaveRowEditor
 
     End Select
@@ -2287,6 +2386,9 @@ Private Sub LoadFromSheet()
                     
                 Case TYPE_RESOURCES
                     LoadTableColumns tbl, col, secIdx
+                    
+                Case TYPE_DICTIONARY
+                    LoadTableColumns tbl, col, secIdx
 
             End Select
 
@@ -2536,19 +2638,25 @@ ErrHandler:
 
 End Sub
 
-Private Function IsHeaderLookalikeRow(ByVal secIdx As Long, ByVal rowStr As String) As Boolean
 
-    If mSecTypes(secIdx) <> TYPE_RESOURCES Then Exit Function
+Private Function IsHeaderLookalikeRow(ByVal secIdx As Long, ByVal rowStr As String) As Boolean
 
     Dim parts() As String
     parts = Split(rowStr, "|")
 
-    If UBound(parts) < 2 Then Exit Function
-
-    If Trim(parts(0)) = SEC_RESOURCES_COL1 And _
-       Trim(parts(1)) = SEC_RESOURCES_COL2 And _
-       Trim(parts(2)) = SEC_RESOURCES_COL3 Then
-        IsHeaderLookalikeRow = True
+    If mSecTypes(secIdx) = TYPE_RESOURCES Then
+        If UBound(parts) < 2 Then Exit Function
+        If Trim(parts(0)) = SEC_RESOURCES_COL1 And _
+           Trim(parts(1)) = SEC_RESOURCES_COL2 And _
+           Trim(parts(2)) = SEC_RESOURCES_COL3 Then
+            IsHeaderLookalikeRow = True
+        End If
+    ElseIf mSecTypes(secIdx) = TYPE_DICTIONARY Then
+        If UBound(parts) < 1 Then Exit Function
+        If Trim(parts(0)) = SEC_DICT_COL1 And _
+           Trim(parts(1)) = SEC_DICT_COL2 Then
+            IsHeaderLookalikeRow = True
+        End If
     End If
 
 End Function
@@ -2643,6 +2751,10 @@ Private Sub WriteToSheet(ByVal ws As Worksheet)
             Case TYPE_RESOURCES
                 WriteResourcesToSheet ws, i, currentCol
                 currentCol = currentCol + 3
+                
+            Case TYPE_DICTIONARY
+                WriteDictionaryToSheet ws, i, currentCol
+                currentCol = currentCol + 2
 
         End Select
 
