@@ -1,10 +1,10 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
    Caption         =   "SOD Editor"
-   ClientHeight    =   8112
-   ClientLeft      =   300
-   ClientTop       =   1098
-   ClientWidth     =   8712.001
+   ClientHeight    =   9198.001
+   ClientLeft      =   288
+   ClientTop       =   1014
+   ClientWidth     =   9804.001
    OleObjectBlob   =   "frmSOD.frx":0000
    StartUpPosition =   2  'CenterScreen
 End
@@ -375,7 +375,7 @@ Private Sub btnRowUp_Click()
     PushUndo
 
     Dim rowIdx As Long
-    rowIdx = selIdx + 1
+    rowIdx = selIdx + RowIndexOffset(mCurrentSection)
     Set mSecItems(mCurrentSection) = SwapCollectionItems(mSecItems(mCurrentSection), rowIdx, rowIdx - 1)
 
     RefreshRowList mCurrentSection
@@ -401,7 +401,7 @@ Private Sub btnRowDown_Click()
     PushUndo
 
     Dim rowIdx As Long
-    rowIdx = selIdx + 1
+    rowIdx = selIdx + RowIndexOffset(mCurrentSection)
     Set mSecItems(mCurrentSection) = SwapCollectionItems(mSecItems(mCurrentSection), rowIdx, rowIdx + 1)
 
     RefreshRowList mCurrentSection
@@ -883,6 +883,18 @@ Private Sub ShowTableSection(ByVal idx As Long)
         colCount = 1
     End If
 
+    ' Guarantee the header/blank-header slot (row 1) always exists
+    If mSecItems(idx).count = 0 Then
+        Dim cols() As String
+        cols = Split(mSecCols(idx), "~")
+        Dim emptyRow As String
+        Dim i As Long
+        For i = 0 To UBound(cols)
+            If i > 0 Then emptyRow = emptyRow & "|"
+        Next i
+        mSecItems(idx).Add emptyRow
+    End If
+
     mLoading = True
     spnColCount.Value = colCount
     chkHasHeader.Value = mSecHasHeader(idx)
@@ -914,41 +926,52 @@ Private Sub chkHasHeader_Click()
 
     PushUndo
 
+    Dim cols() As String
+    If mSecCols(mCurrentSection) <> "" Then
+        cols = Split(mSecCols(mCurrentSection), "~")
+    Else
+        ReDim cols(0)
+    End If
+
+    Dim blankRow As String
+    Dim i As Long
+    For i = 0 To UBound(cols)
+        If i > 0 Then blankRow = blankRow & "|"
+    Next i
+
     If chkHasHeader.Value Then
 
-        If mSecItems(mCurrentSection).count > 0 Then
+        ' Checked: insert a fresh blank row at position 1, bumping
+        ' everything (including whatever was previously in the header
+        ' slot) down by one. Nothing is discarded.
+        Dim newCol As New Collection
+        newCol.Add blankRow
 
-            mSecHeaderRow(mCurrentSection) = mSecItems(mCurrentSection)(1)
-
-            Dim newCol As New Collection
-            Dim i As Long
-            For i = 2 To mSecItems(mCurrentSection).count
-                newCol.Add mSecItems(mCurrentSection)(i)
-            Next i
-            Set mSecItems(mCurrentSection) = newCol
-
-        Else
-            mSecHeaderRow(mCurrentSection) = ""
-        End If
+        Dim j As Long
+        For j = 1 To mSecItems(mCurrentSection).count
+            newCol.Add mSecItems(mCurrentSection)(j)
+        Next j
+        Set mSecItems(mCurrentSection) = newCol
 
         mSecHasHeader(mCurrentSection) = True
 
     Else
 
-        If mSecHeaderRow(mCurrentSection) <> "" Then
+        ' Unchecked: remove the row currently sitting at position 1,
+        ' shifting everything up by one. If that row had real content,
+        ' it's still fully preserved - it just becomes a visible data
+        ' row again instead of the hidden header slot.
+        If mSecItems(mCurrentSection).count > 0 Then
 
             Dim newCol2 As New Collection
-            newCol2.Add mSecHeaderRow(mCurrentSection)
-
-            Dim j As Long
-            For j = 1 To mSecItems(mCurrentSection).count
-                newCol2.Add mSecItems(mCurrentSection)(j)
-            Next j
+            Dim k As Long
+            For k = 2 To mSecItems(mCurrentSection).count
+                newCol2.Add mSecItems(mCurrentSection)(k)
+            Next k
             Set mSecItems(mCurrentSection) = newCol2
 
         End If
 
-        mSecHeaderRow(mCurrentSection) = ""
         mSecHasHeader(mCurrentSection) = False
 
     End If
@@ -962,6 +985,22 @@ ErrHandler:
     HandleFormError "chkHasHeader_Click"
 
 End Sub
+
+Private Function RowIndexOffset(ByVal secIdx As Long) As Long
+
+    ' Returns how much to add to a 0-based lstRows.ListIndex to get the
+    ' correct 1-based mSecItems index. Table sections without a header
+    ' hide mSecItems(1) entirely, so everything shifts by one.
+    If mSecTypes(secIdx) = TYPE_TABLE Then
+        If Not mSecHasHeader(secIdx) Then
+            RowIndexOffset = 2
+            Exit Function
+        End If
+    End If
+
+    RowIndexOffset = 1
+
+End Function
 
 Private Sub spnColCount_Change()
 
@@ -1047,10 +1086,13 @@ Private Sub GenericRemoveRow()
         Exit Sub
     End If
 
+    Dim itemIdx As Long
+    itemIdx = selIdx + RowIndexOffset(mCurrentSection)
+
     Dim newCol As New Collection
     Dim i As Long
     For i = 1 To mSecItems(mCurrentSection).count
-        If i <> selIdx + 1 Then
+        If i <> itemIdx Then
             newCol.Add mSecItems(mCurrentSection)(i)
         End If
     Next i
@@ -1072,8 +1114,11 @@ Private Sub RefreshRowList(ByVal idx As Long)
 
     lstRows.Clear
 
+    Dim startRow As Long
+    startRow = RowIndexOffset(idx)
+
     Dim i As Long
-    For i = 1 To mSecItems(idx).count
+    For i = startRow To mSecItems(idx).count
 
         Dim parts() As String
         parts = Split(mSecItems(idx)(i), "|")
@@ -1387,14 +1432,10 @@ Private Sub lstRows_Click()
     If mLoading Then Exit Sub
     If lstRows.ListIndex < 0 Then Exit Sub
 
-    If mSecTypes(mCurrentSection) = TYPE_RESOURCES Then
-        ' Resources doesn't auto-save/rebuild on row switch - selecting a
-        ' row just selects it; editing is explicit via the Edit button.
+    If mSecTypes(mCurrentSection) = TYPE_RESOURCES Or mSecTypes(mCurrentSection) = TYPE_DICTIONARY Then
         Exit Sub
     End If
 
-    ' Generic TYPE_TABLE sections still use the dynamic fraRowEditor,
-    ' which does need a save-and-reload on row switch.
     SaveRowEditor
     OpenRowEditor lstRows.ListIndex
 
@@ -1418,9 +1459,14 @@ Private Sub OpenRowEditor(ByVal rowIdx As Long)
     Dim cols() As String
     cols = Split(mSecCols(mCurrentSection), "~")
 
+    Dim itemIdx As Long
+    itemIdx = rowIdx + RowIndexOffset(mCurrentSection)
+
+    If itemIdx > mSecItems(mCurrentSection).count Then Exit Sub
+
     Dim parts() As String
     Dim rowData As String
-    rowData = mSecItems(mCurrentSection)(rowIdx + 1)
+    rowData = mSecItems(mCurrentSection)(itemIdx)
     parts = Split(rowData, "|")
 
     Dim i As Long
@@ -1528,10 +1574,14 @@ Private Sub SaveRowEditor()
 
     If fraRowEditor.Tag = "" Then Exit Sub
 
-    Dim rowIdx As Long
+Dim rowIdx As Long
     rowIdx = CLng(fraRowEditor.Tag)
 
-    If rowIdx + 1 > mSecItems(mCurrentSection).count Then Exit Sub
+    Dim itemIdx As Long
+    itemIdx = rowIdx + RowIndexOffset(mCurrentSection)
+
+    If itemIdx > mSecItems(mCurrentSection).count Then Exit Sub
+    If mSecCols(mCurrentSection) = "" Then Exit Sub
     If mSecCols(mCurrentSection) = "" Then Exit Sub
 
     Dim cols() As String
@@ -1563,7 +1613,7 @@ Private Sub SaveRowEditor()
 
     Dim newCol As New Collection
     For i = 1 To mSecItems(mCurrentSection).count
-        If i = rowIdx + 1 Then
+        If i = itemIdx Then
             newCol.Add newRow
         Else
             newCol.Add mSecItems(mCurrentSection)(i)
@@ -2730,13 +2780,35 @@ Private Sub LoadTableColumns(ByVal tbl As ListObject, _
             End If
         Next c
 
-        If Replace(rowStr, "|", "") <> "" Then
+        Dim isBlank As Boolean
+        isBlank = (Replace(rowStr, "|", "") = "")
+
+        If mSecTypes(secIdx) = TYPE_TABLE And r = 1 Then
+
+            ' Row 1 for Table sections is always kept, blank or not -
+            ' it's the reserved header/no-header slot.
+            mSecItems(secIdx).Add rowStr
+
+        ElseIf Not isBlank Then
+
             If Not IsHeaderLookalikeRow(secIdx, rowStr) Then
                 mSecItems(secIdx).Add rowStr
             End If
+
         End If
 
     Next r
+
+    ' Auto-check the header box if the sheet's first row had content
+    If mSecTypes(secIdx) = TYPE_TABLE Then
+        If mSecItems(secIdx).count >= 1 Then
+            Dim firstRowBlank As Boolean
+            firstRowBlank = (Replace(mSecItems(secIdx)(1), "|", "") = "")
+            mSecHasHeader(secIdx) = Not firstRowBlank
+        Else
+            mSecHasHeader(secIdx) = False
+        End If
+    End If
 
     Exit Sub
 
