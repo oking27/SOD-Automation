@@ -1,7 +1,7 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
    Caption         =   "SOD Editor"
-   ClientHeight    =   9198.001
+   ClientHeight    =   8172
    ClientLeft      =   288
    ClientTop       =   1014
    ClientWidth     =   9804.001
