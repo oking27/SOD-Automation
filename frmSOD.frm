@@ -893,7 +893,6 @@ Private Sub ShowTableSection(ByVal idx As Long)
     spnColCount.Value = colCount
     lblColCountValue.Caption = CStr(colCount)
     chkHasHeader.Value = mSecHasHeader(idx)
-    chkHasHeader.Enabled = (colCount >= 2)
     mLoading = False
 
     lstRows.Visible = True
@@ -980,65 +979,50 @@ Private Sub chkHasHeader_Click()
     If mLoading Then Exit Sub
     If mSecTypes(mCurrentSection) <> TYPE_TABLE Then Exit Sub
 
-    PushUndo
+    mSecHasHeader(mCurrentSection) = chkHasHeader.Value
 
-    Dim cols() As String
-    If mSecCols(mCurrentSection) <> "" Then
-        cols = Split(mSecCols(mCurrentSection), "~")
-    Else
-        ReDim cols(0)
-    End If
-
-    Dim blankRow As String
-    Dim i As Long
-    For i = 0 To UBound(cols)
-        If i > 0 Then blankRow = blankRow & "|"
-    Next i
-
-    If chkHasHeader.Value Then
-
-        ' Checked: insert a fresh blank row at position 1, bumping
-        ' everything (including whatever was previously in the header
-        ' slot) down by one. Nothing is discarded.
-        Dim newCol As New Collection
-        newCol.Add blankRow
-
-        Dim j As Long
-        For j = 1 To mSecItems(mCurrentSection).count
-            newCol.Add mSecItems(mCurrentSection)(j)
-        Next j
-        Set mSecItems(mCurrentSection) = newCol
-
-        mSecHasHeader(mCurrentSection) = True
-
-    Else
-
-        ' Unchecked: remove the row currently sitting at position 1,
-        ' shifting everything up by one. If that row had real content,
-        ' it's still fully preserved - it just becomes a visible data
-        ' row again instead of the hidden header slot.
-        If mSecItems(mCurrentSection).count > 0 Then
-
-            Dim newCol2 As New Collection
-            Dim k As Long
-            For k = 2 To mSecItems(mCurrentSection).count
-                newCol2.Add mSecItems(mCurrentSection)(k)
-            Next k
-            Set mSecItems(mCurrentSection) = newCol2
-
-        End If
-
-        mSecHasHeader(mCurrentSection) = False
-
-    End If
-
-    RefreshRowList mCurrentSection
-    ClearRowEditor
+    RefreshRowEditorLabels
 
     Exit Sub
 
 ErrHandler:
     HandleFormError "chkHasHeader_Click"
+
+End Sub
+
+Private Sub RefreshRowEditorLabels()
+
+    On Error GoTo ErrHandler
+
+    If mSecCols(mCurrentSection) = "" Then Exit Sub
+
+    Dim cols() As String
+    cols = Split(mSecCols(mCurrentSection), "~")
+
+    Dim i As Long
+    For i = 0 To UBound(cols)
+
+        Dim lbl As MSForms.Control
+        On Error Resume Next
+        Set lbl = fraRowEditor.Controls("lbl_col_" & i)
+        On Error GoTo ErrHandler
+
+        If Not lbl Is Nothing Then
+
+            If mSecHasHeader(mCurrentSection) Then
+                lbl.Caption = TableColumnLabel(i) & ":"
+            Else
+                lbl.Caption = "Column " & (i + 1) & ":"
+            End If
+
+        End If
+
+    Next i
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "RefreshRowEditorLabels"
 
 End Sub
 
@@ -1085,12 +1069,6 @@ Private Sub spnColCount_Change()
 
     lblColCountValue.Caption = CStr(newCount)
 
-    chkHasHeader.Enabled = (newCount >= 2)
-
-    If newCount < 2 And mSecHasHeader(mCurrentSection) Then
-        mSecHasHeader(mCurrentSection) = False
-        chkHasHeader.Value = False
-    End If
 
     Dim i As Long
     Dim newCols As String
@@ -1175,11 +1153,8 @@ Private Sub RefreshRowList(ByVal idx As Long)
 
     lstRows.Clear
 
-    Dim startRow As Long
-    startRow = RowIndexOffset(idx)
-
     Dim i As Long
-    For i = startRow To mSecItems(idx).count
+    For i = 1 To mSecItems(idx).count
 
         Dim parts() As String
         parts = Split(mSecItems(idx)(i), "|")
@@ -1207,6 +1182,17 @@ Private Sub RefreshRowList(ByVal idx As Long)
         lstRows.AddItem display
 
     Next i
+
+    If mSecTypes(idx) = TYPE_TABLE Then
+
+        chkHasHeader.Enabled = (mSecItems(idx).count >= 1)
+
+        If Not chkHasHeader.Enabled Then
+            chkHasHeader.Value = False
+            mSecHasHeader(idx) = False
+        End If
+
+    End If
 
     Exit Sub
 
