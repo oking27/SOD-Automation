@@ -74,6 +74,8 @@ Private mJustSaved As Boolean
 Private mSecHasHeader() As Boolean  ' module-level variable for tables
 Private mSecHeaderRow() As String
 
+Private mEditingSectionIdx As Long   ' 0 = not editing/reordering
+
 '====================================================
 ' UNDO (single-level, scoped to the section it happened in)
 '====================================================
@@ -413,6 +415,74 @@ ErrHandler:
 
 End Sub
 
+
+Private Sub btnRemoveSection_Click()
+
+    On Error GoTo ErrHandler
+
+    If mEditingSectionIdx > 0 Then
+
+        ' EDIT MODE: this button is "Move Down"
+        If mEditingSectionIdx >= mSecCount Then Exit Sub
+
+        PushUndo
+        SwapSections mEditingSectionIdx, mEditingSectionIdx + 1
+        mEditingSectionIdx = mEditingSectionIdx + 1
+
+        RefreshSectionList
+        lstSections.ListIndex = mEditingSectionIdx - 1
+
+        Exit Sub
+
+    End If
+
+    Dim selIdx As Long
+    selIdx = lstSections.ListIndex
+
+    If selIdx < 0 Then
+        MsgBox "Select a section to remove.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim secIdx As Long
+    secIdx = selIdx + 1
+
+    If IsBuiltInSectionName(mSecNames(secIdx)) Then
+        MsgBox "'" & mSecNames(secIdx) & "' is a built-in section and cannot be removed.", vbExclamation
+        Exit Sub
+    End If
+
+    If mSecCount <= 1 Then
+        MsgBox "Cannot remove the only remaining section.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim resp As VbMsgBoxResult
+    resp = MsgBox("Remove section '" & mSecNames(secIdx) & "'? This deletes all of its data permanently.", _
+                  vbYesNo + vbExclamation, "Remove Section")
+    If resp = vbNo Then Exit Sub
+
+    PushUndo
+    RemoveSectionAt secIdx
+
+    RefreshSectionList
+
+    Dim newSel As Long
+    newSel = secIdx - 1
+    If newSel < 0 Then newSel = 0
+    If newSel > mSecCount - 1 Then newSel = mSecCount - 1
+
+    lstSections.ListIndex = newSel
+    mCurrentSection = newSel + 1
+    ShowSection mCurrentSection
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnRemoveSection_Click"
+
+End Sub
+
 '====================================================
 ' CENTRAL ERROR HANDLER
 ' Every event handler and data function routes runtime
@@ -430,10 +500,6 @@ Private Sub HandleFormError(ByVal procName As String)
 
 End Sub
 
-Private Sub CommandButton1_Click()
-
-End Sub
-
 Private Sub fraContent_Click()
 
 End Sub
@@ -447,6 +513,67 @@ Private Sub lblSectionTitle_Click()
 End Sub
 
 Private Sub lstSubItems_Click()
+
+End Sub
+
+'---helper to protect built-in sections---
+Private Function IsBuiltInSectionName(ByVal name As String) As Boolean
+
+    Select Case LCase(Trim(name))
+        Case LCase(SEC_TITLE), LCase(SEC_PURPOSE), LCase(SEC_SCOPE), LCase(SEC_ROLES), _
+             LCase(SEC_OBJECTIVES), LCase(SEC_STEPS), LCase(SEC_KPIS), _
+             LCase(SEC_RESOURCES), LCase(SEC_DICTIONARY)
+            IsBuiltInSectionName = True
+    End Select
+
+End Function
+
+Private Sub SwapSections(ByVal idx1 As Long, ByVal idx2 As Long)
+
+    Dim tmpName As String, tmpType As String, tmpData As String, tmpCols As String
+    Dim tmpHasHeader As Boolean
+    Dim tmpItems As Collection
+
+    tmpName = mSecNames(idx1): mSecNames(idx1) = mSecNames(idx2): mSecNames(idx2) = tmpName
+    tmpType = mSecTypes(idx1): mSecTypes(idx1) = mSecTypes(idx2): mSecTypes(idx2) = tmpType
+    tmpData = mSecData(idx1): mSecData(idx1) = mSecData(idx2): mSecData(idx2) = tmpData
+    tmpCols = mSecCols(idx1): mSecCols(idx1) = mSecCols(idx2): mSecCols(idx2) = tmpCols
+    tmpHasHeader = mSecHasHeader(idx1): mSecHasHeader(idx1) = mSecHasHeader(idx2): mSecHasHeader(idx2) = tmpHasHeader
+
+    Set tmpItems = mSecItems(idx1)
+    Set mSecItems(idx1) = mSecItems(idx2)
+    Set mSecItems(idx2) = tmpItems
+
+    ' Keep mCurrentSection pointed at whichever slot now holds the
+    ' section that was actually being displayed
+    If mCurrentSection = idx1 Then
+        mCurrentSection = idx2
+    ElseIf mCurrentSection = idx2 Then
+        mCurrentSection = idx1
+    End If
+
+End Sub
+
+Private Sub RemoveSectionAt(ByVal secIdx As Long)
+
+    Dim i As Long
+    For i = secIdx To mSecCount - 1
+        mSecNames(i) = mSecNames(i + 1)
+        mSecTypes(i) = mSecTypes(i + 1)
+        mSecData(i) = mSecData(i + 1)
+        mSecCols(i) = mSecCols(i + 1)
+        mSecHasHeader(i) = mSecHasHeader(i + 1)
+        Set mSecItems(i) = mSecItems(i + 1)
+    Next i
+
+    mSecCount = mSecCount - 1
+
+    ReDim Preserve mSecNames(1 To mSecCount)
+    ReDim Preserve mSecTypes(1 To mSecCount)
+    ReDim Preserve mSecData(1 To mSecCount)
+    ReDim Preserve mSecCols(1 To mSecCount)
+    ReDim Preserve mSecHasHeader(1 To mSecCount)
+    ReDim Preserve mSecItems(1 To mSecCount)
 
 End Sub
 
@@ -633,6 +760,12 @@ Private Sub ShowSection(ByVal idx As Long)
     btnAddRow.Caption = "+ Add"
     btnRemoveRow.Caption = "– Remove"
     btnEditRow.Caption = "Edit"
+    
+    mEditingSectionIdx = 0
+    btnEditSection.Caption = "Edit"
+    btnAddSection.Caption = "+ Add Section"
+    btnRemoveSection.Caption = "- Remove"
+    txtSectionName.Visible = False
 
     lblSectionTitle.Caption = mSecNames(idx)
 
@@ -857,7 +990,7 @@ Private Sub ShowDictionarySection(ByVal idx As Long)
 
     mEditingRowIdx = 0
     btnAddRow.Caption = "+ Add"
-    btnRemoveRow.Caption = "- Remove"
+    btnRemoveRow.Caption = "– Remove"
 
     RefreshRowList idx
 
@@ -904,7 +1037,7 @@ Private Sub ShowTableSection(ByVal idx As Long)
 
     mEditingRowIdx = 0
     btnAddRow.Caption = "+ Add"
-    btnRemoveRow.Caption = "- Remove"
+    btnRemoveRow.Caption = "– Remove"
     btnEditRow.Caption = "Edit"
 
     RefreshRowList idx
@@ -941,9 +1074,11 @@ Private Sub BuildRowEditorFields()
         lbl.Left = 6
         lbl.Top = topPos
         lbl.Width = 70
-        lbl.Height = 16
+        lbl.Height = 20
 
-        If mSecHasHeader(mCurrentSection) Then
+        If mSecHasHeader(mCurrentSection) And mEditingRowIdx = 1 Then
+            lbl.Caption = "Header " & (i + 1) & ":"
+        ElseIf mSecHasHeader(mCurrentSection) Then
             lbl.Caption = TableColumnLabel(i) & ":"
         Else
             lbl.Caption = "Column " & (i + 1) & ":"
@@ -954,7 +1089,7 @@ Private Sub BuildRowEditorFields()
         txt.Tag = "dynamic"
         txt.Left = 80
         txt.Top = topPos
-        txt.Width = 360
+        txt.Width = 300
         txt.Height = 20
 
         topPos = topPos + 28
@@ -999,6 +1134,9 @@ Private Sub RefreshRowEditorLabels()
     Dim cols() As String
     cols = Split(mSecCols(mCurrentSection), "~")
 
+    Dim editingRow1 As Boolean
+    editingRow1 = (mEditingRowIdx = 1)
+
     Dim i As Long
     For i = 0 To UBound(cols)
 
@@ -1009,7 +1147,9 @@ Private Sub RefreshRowEditorLabels()
 
         If Not lbl Is Nothing Then
 
-            If mSecHasHeader(mCurrentSection) Then
+            If mSecHasHeader(mCurrentSection) And editingRow1 Then
+                lbl.Caption = "Header " & (i + 1) & ":"
+            ElseIf mSecHasHeader(mCurrentSection) Then
                 lbl.Caption = TableColumnLabel(i) & ":"
             Else
                 lbl.Caption = "Column " & (i + 1) & ":"
@@ -1090,7 +1230,7 @@ Private Sub spnColCount_Change()
 
     mEditingRowIdx = 0
     btnAddRow.Caption = "+ Add"
-    btnRemoveRow.Caption = "- Remove"
+    btnRemoveRow.Caption = "– Remove"
     btnEditRow.Caption = "Edit"
 
     BuildRowEditorFields
@@ -1388,7 +1528,7 @@ Private Sub ExitRowEditMode()
 
     mEditingRowIdx = 0
     btnAddRow.Caption = "+ Add"
-    btnRemoveRow.Caption = "- Remove"
+    btnRemoveRow.Caption = "– Remove"
     txtResCol1.Text = ""
     txtResCol2.Text = ""
     txtResCol3.Text = ""
@@ -1460,14 +1600,19 @@ Private Sub btnEditRow_Click()
             ' CONFIRM
             PushUndo
             SaveTableRowFieldsInPlace mEditingRowIdx
+            
+            Dim wasEditingRow1 As Boolean
+            wasEditingRow1 = (mEditingRowIdx = 1)
 
             mEditingRowIdx = 0
             btnEditRow.Caption = "Edit"
             btnAddRow.Caption = "+ Add"
-            btnRemoveRow.Caption = "- Remove"
+            btnRemoveRow.Caption = "– Remove"
 
             RefreshRowList mCurrentSection
             ClearTableRowFields
+            
+            If wasEditingRow1 Then RefreshRowEditorLabels
 
         Else
 
@@ -1488,6 +1633,8 @@ Private Sub btnEditRow_Click()
             btnEditRow.Caption = "Confirm"
             btnAddRow.Caption = "Move Up"
             btnRemoveRow.Caption = "Move Down"
+            
+            RefreshRowEditorLabels
 
         End If
 
@@ -2663,6 +2810,22 @@ End Sub
 Private Sub btnAddSection_Click()
 
     On Error GoTo ErrHandler
+
+    If mEditingSectionIdx > 0 Then
+
+        ' EDIT MODE: this button is "Move Up"
+        If mEditingSectionIdx <= 1 Then Exit Sub
+
+        PushUndo
+        SwapSections mEditingSectionIdx, mEditingSectionIdx - 1
+        mEditingSectionIdx = mEditingSectionIdx - 1
+
+        RefreshSectionList
+        lstSections.ListIndex = mEditingSectionIdx - 1
+
+        Exit Sub
+
+    End If
 
     Dim secName As String
     secName = Trim(InputBox("Enter section name:", "Add Section"))
