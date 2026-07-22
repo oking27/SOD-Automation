@@ -334,6 +334,49 @@ Private Sub RenderScope( _
 
 End Sub
 
+Private Sub RenderDictionary( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long)
+
+    Dim firstCol As Long, lastCol As Long
+    Dim rowCount As Long, colCount As Long
+    Dim wdTable As Object
+    Dim r As Long, c As Long
+
+    WriteHeading wdDoc, Trim(tbl.ListColumns(colNum).name)
+
+    firstCol = colNum
+    lastCol = firstCol + 1  ' always 2 columns: Term, Definition
+
+    rowCount = LastUsedTableRow(tbl, firstCol, lastCol)
+    If rowCount = 0 Then Exit Sub
+
+    colCount = 2
+
+    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount, colCount)
+    wdTable.Style = "Table Grid"
+
+    For r = 1 To rowCount
+        For c = 1 To colCount
+            wdTable.cell(r, c).Range.Text = Trim(tbl.DataBodyRange(r, firstCol + c - 1).Text)
+            wdTable.cell(r, c).Range.Font.name = "Lato"
+            If r = 1 Then
+                wdTable.cell(r, c).Range.ParagraphFormat.Alignment = wdAlignParagraphCenter
+                wdTable.cell(r, c).Range.Bold = True
+                wdTable.cell(r, c).Range.Font.Color = GREG_YELLOW
+                wdTable.cell(r, c).Shading.Texture = 0
+                wdTable.cell(r, c).Shading.BackgroundPatternColor = GREG_BLUE
+            Else
+                wdTable.cell(r, c).Range.Font.Size = 11
+            End If
+        Next c
+    Next r
+
+    wdDoc.Content.InsertAfter vbCr
+
+End Sub
+
 Private Sub WriteBoldInlineLabel( _
     ByVal wdDoc As Object, _
     ByVal lbl As String, _
@@ -753,6 +796,7 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
     s.ParagraphFormat.SpaceBefore = 18
     s.ParagraphFormat.SpaceAfter = 0
     s.ParagraphFormat.Alignment = wdAlignParagraphCenter
+    s.ParagraphFormat.KeepWithNext = True
 
     Set s = AddOrGetStyle(wdDoc, "SOD Body")
     With s.Font
