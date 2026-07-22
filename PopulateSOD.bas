@@ -10,7 +10,7 @@ Option Explicit
 ' document's appearance.
 '====================================================
 
-' tracks whether the "Short Form Process Guide" header has been written
+' tracks whether the "Executive Overview" header has been written
 Private mShortFormHeaderWritten As Boolean
 
 ' --- validation severities ---
@@ -213,36 +213,7 @@ Public Sub PopulateSOD()
     Loop
 
     ' ---- Finish ----
-    Response = MsgBox( _
-        "SOD populated successfully." & vbCrLf & vbCrLf & _
-        "Would you like to view the document?", _
-        vbYesNo + vbQuestion, "SOD Populator")
-
     wdApp.Visible = True
-
-    If Response = vbYes Then
-        ' leave open for review; user saves manually when ready
-
-    Else
-        Dim defaultName As String
-        Dim saveTarget As Variant
-
-        defaultName = SanitizeFilename("SOD " & DocTitle) & ".docx"
-
-        saveTarget = Application.GetSaveAsFilename( _
-            InitialFileName:=defaultName, _
-            FileFilter:="Word Document (*.docx), *.docx")
-
-        If Not saveTarget = False Then
-            wdDoc.SaveAs2 fileName:=CStr(saveTarget)
-        End If
-
-        wdDoc.Close SaveChanges:=False
-
-        If weCreatedApp Then
-            If wdApp.Documents.count = 0 Then wdApp.Quit
-        End If
-    End If
 
     Exit Sub
 
@@ -312,7 +283,7 @@ Private Sub RenderPurpose( _
     ByVal colNum As Long)
 
     If Not mShortFormHeaderWritten Then
-        WriteHeading wdDoc, "Short Form Process Guide"
+        WriteHeading wdDoc, "Executive Overview"
         mShortFormHeaderWritten = True
     End If
 
@@ -326,7 +297,7 @@ Private Sub RenderScope( _
     ByVal colNum As Long)
 
     If Not mShortFormHeaderWritten Then
-        WriteHeading wdDoc, "Short Form Process Guide"
+        WriteHeading wdDoc, "Executive Overview"
         mShortFormHeaderWritten = True
     End If
 
@@ -373,7 +344,7 @@ Private Sub RenderDictionary( _
         Next c
     Next r
 
-    wdDoc.Content.InsertAfter vbCr
+    ApplyColumnWidths wdDoc, wdTable
 
 End Sub
 
@@ -748,8 +719,9 @@ Private Function GetWordApp(ByRef weCreatedApp As Boolean) As Object
     If wdApp Is Nothing Then
         Set wdApp = CreateObject("Word.Application")
         weCreatedApp = True
-        wdApp.Visible = False   ' hide only while we build; restored to True before showing/saving
     End If
+
+    wdApp.Visible = True
 
     Set GetWordApp = wdApp
 
@@ -958,7 +930,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
     With hdr.Range.Paragraphs.Last.Range
         .Font.name = "Bebas Neue"
         .Font.Size = 12.5
-        .Font.Spacing = 1.25
+        .Font.Spacing = 1.2
         .ParagraphFormat.Alignment = wdAlignParagraphCenter
         .ParagraphFormat.SpaceBefore = 0
         .ParagraphFormat.SpaceAfter = 6
@@ -1145,6 +1117,9 @@ Private Sub ApplyBulletLevel(ByVal rng As Object, ByVal level As Long)
         .ListLevelNumber = level
     End With
 
+    ' Set bullet color via the list level's font
+    rng.ListFormat.ListTemplate.ListLevels(level).Font.Color = GREG_YELLOW
+
 End Sub
 
 Private Sub WriteBulletList(ByVal wdDoc As Object, ByVal items As Collection)
@@ -1269,6 +1244,40 @@ Private Sub CreateTableSection(ByVal wdDoc As Object, _
     ApplyColumnWidths wdDoc, wdTable
 
     wdDoc.Content.InsertAfter vbCr
+
+End Sub
+
+Private Sub ApplyColumnWidths(ByVal wdDoc As Object, ByVal wdTable As Object)
+
+    Dim totalWidth As Single
+    Dim firstColWidth As Single
+    Dim remainingWidth As Single
+    Dim colCount As Long
+    Dim c As Long
+
+    colCount = wdTable.Columns.count
+
+    If colCount = 0 Then Exit Sub
+
+    totalWidth = wdDoc.PageSetup.PageWidth _
+               - wdDoc.PageSetup.LeftMargin _
+               - wdDoc.PageSetup.RightMargin
+
+    ' Fit first column to content, cap at 40% of total width
+    wdTable.Columns(1).AutoFit
+    firstColWidth = wdTable.Columns(1).Width
+    If firstColWidth > totalWidth * 0.4 Then
+        firstColWidth = totalWidth * 0.4
+        wdTable.Columns(1).SetWidth firstColWidth, 0
+    End If
+
+    ' Distribute remaining width evenly across other columns
+    If colCount > 1 Then
+        remainingWidth = (totalWidth - firstColWidth) / (colCount - 1)
+        For c = 2 To colCount
+            wdTable.Columns(c).SetWidth remainingWidth, 0
+        Next c
+    End If
 
 End Sub
 
