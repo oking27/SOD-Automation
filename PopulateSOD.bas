@@ -1,4 +1,4 @@
-Attribute VB_Name = "Module7"
+Attribute VB_Name = "PopSOD"
 Option Explicit
 
 '====================================================
@@ -113,6 +113,8 @@ Public Sub PopulateSOD()
 
     Dim TitleCol As Long
     Dim DocTitle As String
+    
+    Dim GroupVal As String
 
     Dim Response As VbMsgBoxResult
 
@@ -163,17 +165,19 @@ Public Sub PopulateSOD()
     ' ---- Title ----
     WriteDocumentTitle wdDoc, DocTitle
 
-    ' ---- Headers / Footers / Logo ----
-    BuildHeadersFooters wdDoc, DocTitle
-
     ' ---- Body ----
     col = 1
 
     Do While col <= tbl.ListColumns.count
 
         hdr = Trim(tbl.ListColumns(col).name)
+        
+        Select Case LCase(hdr)
+            Case "group"
+                GroupVal = GetCombinedText(tbl, col)
+        End Select
 
-        If Not IsTableColumn(hdr) And Not IsBulletColumn(hdr) And Not IsTitleColumn(hdr) Then
+        If Not IsTableColumn(hdr) And Not IsBulletColumn(hdr) And Not IsTitleColumn(hdr) And Not IsMetaColumn(hdr) Then
 
             If RenderSpecialSection(wdDoc, tbl, col) Then
 
@@ -211,9 +215,13 @@ Public Sub PopulateSOD()
         End If
 
     Loop
+    
+    ' ---- Headers / Footers / Logo ----
+    BuildHeadersFooters wdDoc, DocTitle, GroupVal
 
     ' ---- Finish ----
     wdApp.Visible = True
+
 
     Exit Sub
 
@@ -340,6 +348,9 @@ Private Sub RenderDictionary( _
                 wdTable.cell(r, c).Shading.BackgroundPatternColor = GREG_BLUE
             Else
                 wdTable.cell(r, c).Range.Font.Size = 11
+                If c = 1 Then
+                    wdTable.cell(r, c).Range.ParagraphFormat.Alignment = wdAlignParagraphRight
+                End If
             End If
         Next c
     Next r
@@ -873,7 +884,8 @@ End Sub
 ' HEADERS / FOOTERS / LOGO
 '====================================================
 
-Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
+Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String, _
+                                ByVal GroupVal As String)
 
     Dim sec As Object
     Dim hdr As Object
@@ -930,7 +942,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
     With hdr.Range.Paragraphs.Last.Range
         .Font.name = "Bebas Neue"
         .Font.Size = 12.5
-        .Font.Spacing = 1.2
+        .Font.Spacing = 1
         .ParagraphFormat.Alignment = wdAlignParagraphCenter
         .ParagraphFormat.SpaceBefore = 0
         .ParagraphFormat.SpaceAfter = 6
@@ -953,14 +965,14 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
 
     tbl.PreferredWidthType = 2
     tbl.PreferredWidth = 100
-    tbl.Columns(1).SetWidth usableWidth * 0.65, 0
-    tbl.Columns(2).SetWidth usableWidth * 0.35, 0
+    tbl.Columns(1).SetWidth usableWidth * 0.75, 0
+    tbl.Columns(2).SetWidth usableWidth * 0.25, 0
 
     With tbl.cell(1, 1).Range
-        .Text = "Group: "
+        .Text = "Group: " & GroupVal
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -968,15 +980,15 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
         .Text = "Page 1"
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphRight
     End With
 
     With tbl.cell(2, 1).Range
-        .Text = "Process Number: "
+        .Text = DocTitle 'Later might be Process Number
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -984,7 +996,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
         .Text = "Updated: " & todayStr
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphRight
     End With
 
@@ -1039,7 +1051,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
         .Text = DocTitle
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -1050,7 +1062,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
     rightRng.Fields.Add rightRng, wdFieldPage
 
     tbl.cell(1, 2).Range.Font.name = "Lato"
-    tbl.cell(1, 2).Range.Font.Size = 11
+    tbl.cell(1, 2).Range.Font.Size = 10
     tbl.cell(1, 2).Range.Font.Color = GREG_GRAY
     tbl.cell(1, 2).Range.ParagraphFormat.Alignment = wdAlignParagraphRight
 
@@ -1346,6 +1358,13 @@ End Function
 
 Private Function IsTitleColumn(ByVal txt As String) As Boolean
     IsTitleColumn = (LCase(Trim(txt)) = "title")
+End Function
+
+Private Function IsMetaColumn(ByVal txt As String) As Boolean
+    Select Case LCase(Trim(txt))
+        Case "title", "group"
+            IsMetaColumn = True
+    End Select
 End Function
 
 Private Function GetDocumentTitle(ByVal tbl As ListObject, ByVal TitleCol As Long) As String

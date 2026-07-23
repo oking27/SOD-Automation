@@ -77,6 +77,9 @@ Private mSecHeaderRow() As String
 Private mEditingSectionIdx As Long   ' 0 = not editing/reordering
 Private mAddingSection As Boolean
 
+Private Const SEC_GROUP As String = "Group"
+Private Const TYPE_GROUP As String = "GROUP"   ' single dropdown, metadata only
+
 '====================================================
 ' UNDO (single-level, scoped to the section it happened in)
 '====================================================
@@ -563,41 +566,41 @@ Private Sub InitSections()
 
     On Error GoTo ErrHandler
 
-    mSecCount = 9
+    mSecCount = 10
     ReDim mSecNames(1 To mSecCount)
     ReDim mSecTypes(1 To mSecCount)
     ReDim mSecData(1 To mSecCount)
     ReDim mSecItems(1 To mSecCount)
     ReDim mSecCols(1 To mSecCount)
     ReDim mSecHasHeader(1 To mSecCount)
-    ReDim mSecHeaderRow(1 To mSecCount)
 
     mSecNames(1) = SEC_TITLE
-    mSecNames(2) = SEC_PURPOSE
-    mSecNames(3) = SEC_SCOPE
-    mSecNames(4) = SEC_DICTIONARY
-    mSecNames(5) = SEC_ROLES
-    mSecNames(6) = SEC_OBJECTIVES
-    mSecNames(7) = SEC_STEPS
-    mSecNames(8) = SEC_KPIS
-    mSecNames(9) = SEC_RESOURCES
+    mSecNames(2) = SEC_GROUP
+    mSecNames(3) = SEC_PURPOSE
+    mSecNames(4) = SEC_SCOPE
+    mSecNames(5) = SEC_DICTIONARY
+    mSecNames(6) = SEC_ROLES
+    mSecNames(7) = SEC_OBJECTIVES
+    mSecNames(8) = SEC_STEPS
+    mSecNames(9) = SEC_KPIS
+    mSecNames(10) = SEC_RESOURCES
 
     mSecTypes(1) = TYPE_PLAIN
-    mSecTypes(2) = TYPE_PLAIN
+    mSecTypes(2) = TYPE_GROUP
     mSecTypes(3) = TYPE_PLAIN
-    mSecTypes(4) = TYPE_DICTIONARY
-    mSecTypes(5) = TYPE_NESTED
-    mSecTypes(6) = TYPE_LIST
-    mSecTypes(7) = TYPE_NESTED
-    mSecTypes(8) = TYPE_LIST
-    mSecTypes(9) = TYPE_RESOURCES
+    mSecTypes(4) = TYPE_PLAIN
+    mSecTypes(5) = TYPE_DICTIONARY
+    mSecTypes(6) = TYPE_NESTED
+    mSecTypes(7) = TYPE_LIST
+    mSecTypes(8) = TYPE_NESTED
+    mSecTypes(9) = TYPE_LIST
+    mSecTypes(10) = TYPE_RESOURCES
 
     Dim i As Long
     For i = 1 To mSecCount
         mSecData(i) = ""
         mSecCols(i) = ""
         mSecHasHeader(i) = False
-        mSecHeaderRow(i) = ""
         Set mSecItems(i) = New Collection
     Next i
 
@@ -740,6 +743,9 @@ Private Sub ShowSection(ByVal idx As Long)
         Case TYPE_DICTIONARY
             ShowDictionarySection idx
             
+        Case TYPE_GROUP
+            ShowGroupSection idx
+            
     End Select
 
     mLoading = False
@@ -768,6 +774,7 @@ Private Sub HideAllControls()
     btnRemoveSubItem.Visible = False
     btnEditSubItem.Visible = False
     txtSubItem.Visible = False
+    cboGroup.Visible = False
     
     chkHasHeader.Visible = False
     lblColCount.Visible = False
@@ -913,6 +920,27 @@ Private Sub ShowNestedSection(ByVal idx As Long)
 
 ErrHandler:
     HandleFormError "ShowNestedSection"
+
+End Sub
+
+Private Sub ShowGroupSection(ByVal idx As Long)
+
+    On Error GoTo ErrHandler
+
+    cboGroup.Clear
+
+    ' TODO: replace this placeholder list with your real Group options
+    cboGroup.AddItem "Group A"
+    cboGroup.AddItem "Group B"
+    cboGroup.AddItem "Group C"
+
+    cboGroup.Visible = True
+    cboGroup.Value = mSecData(idx)
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ShowGroupSection"
 
 End Sub
 
@@ -2116,6 +2144,9 @@ Private Sub SaveCurrentSection()
             mSecData(mCurrentSection) = txtContent.Text
             If mCurrentSection = FindSection(SEC_TITLE) Then UpdateFormCaption
 
+        Case TYPE_GROUP
+            mSecData(mCurrentSection) = cboGroup.Value
+
         Case TYPE_TABLE
             SaveRowEditor
 
@@ -3056,6 +3087,9 @@ Private Sub LoadFromSheet()
                     
                 Case TYPE_DICTIONARY
                     LoadTableColumns tbl, col, secIdx
+                    
+                Case TYPE_GROUP
+                    LoadPlainColumn tbl, col, secIdx
 
             End Select
 
@@ -3444,6 +3478,10 @@ Private Sub WriteToSheet(ByVal ws As Worksheet)
             Case TYPE_DICTIONARY
                 WriteDictionaryToSheet ws, i, currentCol
                 currentCol = currentCol + 2
+                
+            Case TYPE_GROUP
+                WritePlainToSheet ws, i, currentCol
+                currentCol = currentCol + 1
 
         End Select
 
