@@ -1,4 +1,4 @@
-Attribute VB_Name = "Module7"
+Attribute VB_Name = "PopSOD"
 Option Explicit
 
 '====================================================
@@ -10,7 +10,7 @@ Option Explicit
 ' document's appearance.
 '====================================================
 
-' tracks whether the "Short Form Process Guide" header has been written
+' tracks whether the "Executive Overview" header has been written
 Private mShortFormHeaderWritten As Boolean
 
 ' --- validation severities ---
@@ -113,6 +113,8 @@ Public Sub PopulateSOD()
 
     Dim TitleCol As Long
     Dim DocTitle As String
+    
+    Dim GroupVal As String
 
     Dim Response As VbMsgBoxResult
 
@@ -163,17 +165,19 @@ Public Sub PopulateSOD()
     ' ---- Title ----
     WriteDocumentTitle wdDoc, DocTitle
 
-    ' ---- Headers / Footers / Logo ----
-    BuildHeadersFooters wdDoc, DocTitle
-
     ' ---- Body ----
     col = 1
 
     Do While col <= tbl.ListColumns.count
 
         hdr = Trim(tbl.ListColumns(col).name)
+        
+        Select Case LCase(hdr)
+            Case "group"
+                GroupVal = GetCombinedText(tbl, col)
+        End Select
 
-        If Not IsTableColumn(hdr) And Not IsBulletColumn(hdr) And Not IsTitleColumn(hdr) Then
+        If Not IsTableColumn(hdr) And Not IsBulletColumn(hdr) And Not IsTitleColumn(hdr) And Not IsMetaColumn(hdr) Then
 
             If RenderSpecialSection(wdDoc, tbl, col) Then
 
@@ -211,38 +215,13 @@ Public Sub PopulateSOD()
         End If
 
     Loop
+    
+    ' ---- Headers / Footers / Logo ----
+    BuildHeadersFooters wdDoc, DocTitle, GroupVal
 
     ' ---- Finish ----
-    Response = MsgBox( _
-        "SOD populated successfully." & vbCrLf & vbCrLf & _
-        "Would you like to view the document?", _
-        vbYesNo + vbQuestion, "SOD Populator")
-
     wdApp.Visible = True
 
-    If Response = vbYes Then
-        ' leave open for review; user saves manually when ready
-
-    Else
-        Dim defaultName As String
-        Dim saveTarget As Variant
-
-        defaultName = SanitizeFilename("SOD " & DocTitle) & ".docx"
-
-        saveTarget = Application.GetSaveAsFilename( _
-            InitialFileName:=defaultName, _
-            FileFilter:="Word Document (*.docx), *.docx")
-
-        If Not saveTarget = False Then
-            wdDoc.SaveAs2 fileName:=CStr(saveTarget)
-        End If
-
-        wdDoc.Close SaveChanges:=False
-
-        If weCreatedApp Then
-            If wdApp.Documents.count = 0 Then wdApp.Quit
-        End If
-    End If
 
     Exit Sub
 
@@ -278,6 +257,10 @@ Private Function RenderSpecialSection( _
         Case "scope"
             RenderScope wdDoc, tbl, colNum
             RenderSpecialSection = True
+            
+        Case "dictionary"
+            RenderDictionary wdDoc, tbl, colNum
+            RenderSpecialSection = True
 
         Case "roles"
             RenderRoles wdDoc, tbl, colNum
@@ -308,7 +291,7 @@ Private Sub RenderPurpose( _
     ByVal colNum As Long)
 
     If Not mShortFormHeaderWritten Then
-        WriteHeading wdDoc, "Short Form Process Guide"
+        WriteHeading wdDoc, "Executive Overview"
         mShortFormHeaderWritten = True
     End If
 
@@ -322,11 +305,57 @@ Private Sub RenderScope( _
     ByVal colNum As Long)
 
     If Not mShortFormHeaderWritten Then
-        WriteHeading wdDoc, "Short Form Process Guide"
+        WriteHeading wdDoc, "Executive Overview"
         mShortFormHeaderWritten = True
     End If
 
     WriteBoldInlineLabel wdDoc, "Scope", GetCombinedText(tbl, colNum)
+
+End Sub
+
+Private Sub RenderDictionary( _
+    ByVal wdDoc As Object, _
+    ByVal tbl As ListObject, _
+    ByVal colNum As Long)
+
+    Dim firstCol As Long, lastCol As Long
+    Dim rowCount As Long, colCount As Long
+    Dim wdTable As Object
+    Dim r As Long, c As Long
+
+    WriteHeading wdDoc, Trim(tbl.ListColumns(colNum).name)
+
+    firstCol = colNum
+    lastCol = firstCol + 1  ' always 2 columns: Term, Definition
+
+    rowCount = LastUsedTableRow(tbl, firstCol, lastCol)
+    If rowCount = 0 Then Exit Sub
+
+    colCount = 2
+
+    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount, colCount)
+    wdTable.Style = "Table Grid"
+
+    For r = 1 To rowCount
+        For c = 1 To colCount
+            wdTable.cell(r, c).Range.Text = Trim(tbl.DataBodyRange(r, firstCol + c - 1).Text)
+            wdTable.cell(r, c).Range.Font.name = "Lato"
+            If r = 1 Then
+                wdTable.cell(r, c).Range.ParagraphFormat.Alignment = wdAlignParagraphCenter
+                wdTable.cell(r, c).Range.Bold = True
+                wdTable.cell(r, c).Range.Font.Color = GREG_YELLOW
+                wdTable.cell(r, c).Shading.Texture = 0
+                wdTable.cell(r, c).Shading.BackgroundPatternColor = GREG_BLUE
+            Else
+                wdTable.cell(r, c).Range.Font.Size = 11
+                If c = 1 Then
+                    wdTable.cell(r, c).Range.ParagraphFormat.Alignment = wdAlignParagraphRight
+                End If
+            End If
+        Next c
+    Next r
+
+    ApplyColumnWidths wdDoc, wdTable
 
 End Sub
 
@@ -701,8 +730,9 @@ Private Function GetWordApp(ByRef weCreatedApp As Boolean) As Object
     If wdApp Is Nothing Then
         Set wdApp = CreateObject("Word.Application")
         weCreatedApp = True
-        wdApp.Visible = False   ' hide only while we build; restored to True before showing/saving
     End If
+
+    wdApp.Visible = True
 
     Set GetWordApp = wdApp
 
@@ -749,6 +779,7 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
     s.ParagraphFormat.SpaceBefore = 18
     s.ParagraphFormat.SpaceAfter = 0
     s.ParagraphFormat.Alignment = wdAlignParagraphCenter
+    s.ParagraphFormat.KeepWithNext = True
 
     Set s = AddOrGetStyle(wdDoc, "SOD Body")
     With s.Font
@@ -853,7 +884,8 @@ End Sub
 ' HEADERS / FOOTERS / LOGO
 '====================================================
 
-Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
+Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String, _
+                                ByVal GroupVal As String)
 
     Dim sec As Object
     Dim hdr As Object
@@ -910,7 +942,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
     With hdr.Range.Paragraphs.Last.Range
         .Font.name = "Bebas Neue"
         .Font.Size = 12.5
-        .Font.Spacing = 1.25
+        .Font.Spacing = 1
         .ParagraphFormat.Alignment = wdAlignParagraphCenter
         .ParagraphFormat.SpaceBefore = 0
         .ParagraphFormat.SpaceAfter = 6
@@ -933,14 +965,14 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
 
     tbl.PreferredWidthType = 2
     tbl.PreferredWidth = 100
-    tbl.Columns(1).SetWidth usableWidth * 0.65, 0
-    tbl.Columns(2).SetWidth usableWidth * 0.35, 0
+    tbl.Columns(1).SetWidth usableWidth * 0.75, 0
+    tbl.Columns(2).SetWidth usableWidth * 0.25, 0
 
     With tbl.cell(1, 1).Range
-        .Text = "Group: "
+        .Text = "Group: " & GroupVal
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -948,15 +980,15 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
         .Text = "Page 1"
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphRight
     End With
 
     With tbl.cell(2, 1).Range
-        .Text = "Process Number: "
+        .Text = DocTitle 'Later might be Process Number
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -964,7 +996,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
         .Text = "Updated: " & todayStr
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphRight
     End With
 
@@ -1019,7 +1051,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
         .Text = DocTitle
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -1030,7 +1062,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String)
     rightRng.Fields.Add rightRng, wdFieldPage
 
     tbl.cell(1, 2).Range.Font.name = "Lato"
-    tbl.cell(1, 2).Range.Font.Size = 11
+    tbl.cell(1, 2).Range.Font.Size = 10
     tbl.cell(1, 2).Range.Font.Color = GREG_GRAY
     tbl.cell(1, 2).Range.ParagraphFormat.Alignment = wdAlignParagraphRight
 
@@ -1096,6 +1128,9 @@ Private Sub ApplyBulletLevel(ByVal rng As Object, ByVal level As Long)
             DefaultListBehavior:=wdWord10ListBehavior
         .ListLevelNumber = level
     End With
+
+    ' Set bullet color via the list level's font
+    rng.ListFormat.ListTemplate.ListLevels(level).Font.Color = GREG_YELLOW
 
 End Sub
 
@@ -1164,6 +1199,8 @@ Private Sub CreateTableSection(ByVal wdDoc As Object, _
     Dim rowCount As Long, colCount As Long
     Dim wdTable As Object
     Dim r As Long, c As Long
+    Dim startRow As Long
+    Dim hasHeader As Boolean
 
     firstCol = parentCol
     lastCol = GetLastTableColumn(tbl, parentCol)
@@ -1173,29 +1210,86 @@ Private Sub CreateTableSection(ByVal wdDoc As Object, _
 
     colCount = lastCol - firstCol + 1
 
-    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount, colCount)
-    wdTable.Style = "Table Grid"
+    ' A blank row 1 means "no header" - skip it entirely rather than
+    ' inserting an empty formatted header row into the Word table.
+    hasHeader = False
+    For c = firstCol To lastCol
+        If Trim(tbl.DataBodyRange(1, c).Value) <> "" Then
+            hasHeader = True
+            Exit For
+        End If
+    Next c
 
-    For r = 1 To rowCount
+    If hasHeader Then
+        startRow = 1
+    Else
+        startRow = 2
+    End If
+
+    If startRow > rowCount Then Exit Sub
+
+    Dim wordRowCount As Long
+    wordRowCount = rowCount - startRow + 1
+
+    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, wordRowCount, colCount)
+
+    Dim wordR As Long
+    wordR = 0
+
+    For r = startRow To rowCount
+
+        wordR = wordR + 1
+
         For c = 1 To colCount
-            ' Trim text; .Text preserves displayed formatting
-            wdTable.cell(r, c).Range.Text = Trim(tbl.DataBodyRange(r, firstCol + c - 1).Text)
+            wdTable.cell(wordR, c).Range.Text = Trim(tbl.DataBodyRange(r, firstCol + c - 1).Text)
+            wdTable.cell(wordR, c).Range.Font.name = "Lato"
 
-            ' Apply Lato font to all table cells
-            wdTable.cell(r, c).Range.Font.name = "Lato"
-
-            ' Center align and bold header row (row 1)
-            If r = 1 Then
-                wdTable.cell(r, c).Range.ParagraphFormat.Alignment = wdAlignParagraphCenter
-                wdTable.cell(r, c).Range.Bold = True
-                wdTable.cell(r, c).Range.Font.Color = GREG_YELLOW
-                wdTable.cell(r, c).Shading.Texture = 0
-                wdTable.cell(r, c).Shading.BackgroundPatternColor = GREG_BLUE
+            If hasHeader And wordR = 1 Then
+                wdTable.cell(wordR, c).Range.ParagraphFormat.Alignment = wdAlignParagraphCenter
+                wdTable.cell(wordR, c).Range.Bold = True
             End If
         Next c
+
     Next r
 
+    wdTable.Style = "Table Grid"
+    ApplyColumnWidths wdDoc, wdTable
+
     wdDoc.Content.InsertAfter vbCr
+
+End Sub
+
+Private Sub ApplyColumnWidths(ByVal wdDoc As Object, ByVal wdTable As Object)
+
+    Dim totalWidth As Single
+    Dim firstColWidth As Single
+    Dim remainingWidth As Single
+    Dim colCount As Long
+    Dim c As Long
+
+    colCount = wdTable.Columns.count
+
+    If colCount = 0 Then Exit Sub
+
+    totalWidth = wdDoc.PageSetup.PageWidth _
+               - wdDoc.PageSetup.LeftMargin _
+               - wdDoc.PageSetup.RightMargin
+
+    ' Fit first column to content, cap at 40% of total width
+    wdTable.Columns(1).AutoFit
+    firstColWidth = wdTable.Columns(1).Width
+    If firstColWidth > totalWidth * 0.4 Then
+        firstColWidth = totalWidth * 0.4
+        wdTable.Columns(1).SetWidth firstColWidth, 0
+    End If
+
+    ' Distribute remaining width evenly across other columns
+    If colCount > 1 Then
+        remainingWidth = (totalWidth - firstColWidth) / (colCount - 1)
+        For c = 2 To colCount
+            wdTable.Columns(c).SetWidth remainingWidth, 0
+        Next c
+    End If
 
 End Sub
 
@@ -1264,6 +1358,13 @@ End Function
 
 Private Function IsTitleColumn(ByVal txt As String) As Boolean
     IsTitleColumn = (LCase(Trim(txt)) = "title")
+End Function
+
+Private Function IsMetaColumn(ByVal txt As String) As Boolean
+    Select Case LCase(Trim(txt))
+        Case "title", "group"
+            IsMetaColumn = True
+    End Select
 End Function
 
 Private Function GetDocumentTitle(ByVal tbl As ListObject, ByVal TitleCol As Long) As String

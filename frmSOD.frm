@@ -74,6 +74,12 @@ Private mJustSaved As Boolean
 Private mSecHasHeader() As Boolean  ' module-level variable for tables
 Private mSecHeaderRow() As String
 
+Private mEditingSectionIdx As Long   ' 0 = not editing/reordering
+Private mAddingSection As Boolean
+
+Private Const SEC_GROUP As String = "Group"
+Private Const TYPE_GROUP As String = "GROUP"   ' single dropdown, metadata only
+
 '====================================================
 ' UNDO (single-level, scoped to the section it happened in)
 '====================================================
@@ -430,10 +436,6 @@ Private Sub HandleFormError(ByVal procName As String)
 
 End Sub
 
-Private Sub CommandButton1_Click()
-
-End Sub
-
 Private Sub fraContent_Click()
 
 End Sub
@@ -447,6 +449,82 @@ Private Sub lblSectionTitle_Click()
 End Sub
 
 Private Sub lstSubItems_Click()
+
+End Sub
+
+Private Sub RefreshCancelButtonCaption()
+
+    On Error Resume Next
+
+    If mAddingSection Or mEditingSectionIdx > 0 Or mEditingItemIdx > 0 _
+       Or mEditingSubIdx >= 0 Or mEditingRowIdx > 0 Then
+        btnCancel.Caption = "Cancel"
+    Else
+        btnCancel.Caption = "Close"
+    End If
+
+    On Error GoTo 0
+
+End Sub
+
+'---helper to protect built-in sections---
+Private Function IsBuiltInSectionName(ByVal name As String) As Boolean
+
+    Select Case LCase(Trim(name))
+        Case LCase(SEC_TITLE), LCase(SEC_PURPOSE), LCase(SEC_SCOPE), LCase(SEC_ROLES), _
+             LCase(SEC_OBJECTIVES), LCase(SEC_STEPS), LCase(SEC_KPIS), _
+             LCase(SEC_RESOURCES), LCase(SEC_DICTIONARY)
+            IsBuiltInSectionName = True
+    End Select
+
+End Function
+
+Private Sub SwapSections(ByVal idx1 As Long, ByVal idx2 As Long)
+
+    Dim tmpName As String, tmpType As String, tmpData As String, tmpCols As String
+    Dim tmpHasHeader As Boolean
+    Dim tmpItems As Collection
+
+    tmpName = mSecNames(idx1): mSecNames(idx1) = mSecNames(idx2): mSecNames(idx2) = tmpName
+    tmpType = mSecTypes(idx1): mSecTypes(idx1) = mSecTypes(idx2): mSecTypes(idx2) = tmpType
+    tmpData = mSecData(idx1): mSecData(idx1) = mSecData(idx2): mSecData(idx2) = tmpData
+    tmpCols = mSecCols(idx1): mSecCols(idx1) = mSecCols(idx2): mSecCols(idx2) = tmpCols
+    tmpHasHeader = mSecHasHeader(idx1): mSecHasHeader(idx1) = mSecHasHeader(idx2): mSecHasHeader(idx2) = tmpHasHeader
+
+    Set tmpItems = mSecItems(idx1)
+    Set mSecItems(idx1) = mSecItems(idx2)
+    Set mSecItems(idx2) = tmpItems
+
+    ' Keep mCurrentSection pointed at whichever slot now holds the
+    ' section that was actually being displayed
+    If mCurrentSection = idx1 Then
+        mCurrentSection = idx2
+    ElseIf mCurrentSection = idx2 Then
+        mCurrentSection = idx1
+    End If
+
+End Sub
+
+Private Sub RemoveSectionAt(ByVal secIdx As Long)
+
+    Dim i As Long
+    For i = secIdx To mSecCount - 1
+        mSecNames(i) = mSecNames(i + 1)
+        mSecTypes(i) = mSecTypes(i + 1)
+        mSecData(i) = mSecData(i + 1)
+        mSecCols(i) = mSecCols(i + 1)
+        mSecHasHeader(i) = mSecHasHeader(i + 1)
+        Set mSecItems(i) = mSecItems(i + 1)
+    Next i
+
+    mSecCount = mSecCount - 1
+
+    ReDim Preserve mSecNames(1 To mSecCount)
+    ReDim Preserve mSecTypes(1 To mSecCount)
+    ReDim Preserve mSecData(1 To mSecCount)
+    ReDim Preserve mSecCols(1 To mSecCount)
+    ReDim Preserve mSecHasHeader(1 To mSecCount)
+    ReDim Preserve mSecItems(1 To mSecCount)
 
 End Sub
 
@@ -488,41 +566,41 @@ Private Sub InitSections()
 
     On Error GoTo ErrHandler
 
-    mSecCount = 9
+    mSecCount = 10
     ReDim mSecNames(1 To mSecCount)
     ReDim mSecTypes(1 To mSecCount)
     ReDim mSecData(1 To mSecCount)
     ReDim mSecItems(1 To mSecCount)
     ReDim mSecCols(1 To mSecCount)
     ReDim mSecHasHeader(1 To mSecCount)
-    ReDim mSecHeaderRow(1 To mSecCount)
 
     mSecNames(1) = SEC_TITLE
-    mSecNames(2) = SEC_PURPOSE
-    mSecNames(3) = SEC_SCOPE
-    mSecNames(4) = SEC_DICTIONARY
-    mSecNames(5) = SEC_ROLES
-    mSecNames(6) = SEC_OBJECTIVES
-    mSecNames(7) = SEC_STEPS
-    mSecNames(8) = SEC_KPIS
-    mSecNames(9) = SEC_RESOURCES
+    mSecNames(2) = SEC_GROUP
+    mSecNames(3) = SEC_PURPOSE
+    mSecNames(4) = SEC_SCOPE
+    mSecNames(5) = SEC_DICTIONARY
+    mSecNames(6) = SEC_ROLES
+    mSecNames(7) = SEC_OBJECTIVES
+    mSecNames(8) = SEC_STEPS
+    mSecNames(9) = SEC_KPIS
+    mSecNames(10) = SEC_RESOURCES
 
     mSecTypes(1) = TYPE_PLAIN
-    mSecTypes(2) = TYPE_PLAIN
+    mSecTypes(2) = TYPE_GROUP
     mSecTypes(3) = TYPE_PLAIN
-    mSecTypes(4) = TYPE_DICTIONARY
-    mSecTypes(5) = TYPE_NESTED
-    mSecTypes(6) = TYPE_LIST
-    mSecTypes(7) = TYPE_NESTED
-    mSecTypes(8) = TYPE_LIST
-    mSecTypes(9) = TYPE_RESOURCES
+    mSecTypes(4) = TYPE_PLAIN
+    mSecTypes(5) = TYPE_DICTIONARY
+    mSecTypes(6) = TYPE_NESTED
+    mSecTypes(7) = TYPE_LIST
+    mSecTypes(8) = TYPE_NESTED
+    mSecTypes(9) = TYPE_LIST
+    mSecTypes(10) = TYPE_RESOURCES
 
     Dim i As Long
     For i = 1 To mSecCount
         mSecData(i) = ""
         mSecCols(i) = ""
         mSecHasHeader(i) = False
-        mSecHeaderRow(i) = ""
         Set mSecItems(i) = New Collection
     Next i
 
@@ -633,6 +711,13 @@ Private Sub ShowSection(ByVal idx As Long)
     btnAddRow.Caption = "+ Add"
     btnRemoveRow.Caption = "– Remove"
     btnEditRow.Caption = "Edit"
+    
+    mEditingSectionIdx = 0
+    btnEditSection.Caption = "Edit"
+    btnAddSection.Caption = "+ Add Section"
+    btnRemoveSection.Caption = "– Remove"
+    txtSectionName.Visible = False
+    btnCancel.Caption = "Close"
 
     lblSectionTitle.Caption = mSecNames(idx)
 
@@ -657,6 +742,9 @@ Private Sub ShowSection(ByVal idx As Long)
             
         Case TYPE_DICTIONARY
             ShowDictionarySection idx
+            
+        Case TYPE_GROUP
+            ShowGroupSection idx
             
     End Select
 
@@ -686,6 +774,7 @@ Private Sub HideAllControls()
     btnRemoveSubItem.Visible = False
     btnEditSubItem.Visible = False
     txtSubItem.Visible = False
+    cboGroup.Visible = False
     
     chkHasHeader.Visible = False
     lblColCount.Visible = False
@@ -834,6 +923,27 @@ ErrHandler:
 
 End Sub
 
+Private Sub ShowGroupSection(ByVal idx As Long)
+
+    On Error GoTo ErrHandler
+
+    cboGroup.Clear
+
+    ' TODO: replace this placeholder list with your real Group options
+    cboGroup.AddItem "Group A"
+    cboGroup.AddItem "Group B"
+    cboGroup.AddItem "Group C"
+
+    cboGroup.Visible = True
+    cboGroup.Value = mSecData(idx)
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ShowGroupSection"
+
+End Sub
+
 Private Sub ShowDictionarySection(ByVal idx As Long)
 
     On Error GoTo ErrHandler
@@ -941,7 +1051,7 @@ Private Sub BuildRowEditorFields()
         lbl.Left = 6
         lbl.Top = topPos
         lbl.Width = 70
-        lbl.Height = 16
+        lbl.Height = 20
 
         If mSecHasHeader(mCurrentSection) And mEditingRowIdx = 1 Then
             lbl.Caption = "Header " & (i + 1) & ":"
@@ -956,7 +1066,7 @@ Private Sub BuildRowEditorFields()
         txt.Tag = "dynamic"
         txt.Left = 80
         txt.Top = topPos
-        txt.Width = 360
+        txt.Width = 300
         txt.Height = 20
 
         topPos = topPos + 28
@@ -1395,7 +1505,9 @@ Private Sub ExitRowEditMode()
 
     mEditingRowIdx = 0
     btnAddRow.Caption = "+ Add"
-    btnRemoveRow.Caption = "– Remove"
+    btnRemoveRow.Caption = "- Remove"
+    btnEditRow.Caption = "Edit"
+    btnCancel.Caption = "Close"
     txtResCol1.Text = ""
     txtResCol2.Text = ""
     txtResCol3.Text = ""
@@ -1457,6 +1569,7 @@ Private Sub btnEditRow_Click()
             btnEditRow.Caption = "Confirm"
             btnAddRow.Caption = "Move Up"
             btnRemoveRow.Caption = "Move Down"
+            btnCancel.Caption = "Cancel"
 
         End If
 
@@ -1475,6 +1588,7 @@ Private Sub btnEditRow_Click()
             btnEditRow.Caption = "Edit"
             btnAddRow.Caption = "+ Add"
             btnRemoveRow.Caption = "– Remove"
+            btnCancel.Caption = "Close"
 
             RefreshRowList mCurrentSection
             ClearTableRowFields
@@ -1500,6 +1614,7 @@ Private Sub btnEditRow_Click()
             btnEditRow.Caption = "Confirm"
             btnAddRow.Caption = "Move Up"
             btnRemoveRow.Caption = "Move Down"
+            btnCancel.Caption = "Cancel"
             
             RefreshRowEditorLabels
 
@@ -1519,6 +1634,12 @@ Private Sub btnRemoveRow_Click()
     On Error GoTo ErrHandler
 
     Dim isFixed As Boolean
+    Dim selIdx As Long
+    Dim newCol As New Collection
+    Dim i As Long
+    Dim newSelIdx As Long
+    Dim itemIdx As Long
+
     isFixed = (mSecTypes(mCurrentSection) = TYPE_RESOURCES Or mSecTypes(mCurrentSection) = TYPE_DICTIONARY)
 
     If isFixed Then
@@ -1540,7 +1661,6 @@ Private Sub btnRemoveRow_Click()
 
         Else
 
-            Dim selIdx As Long
             selIdx = lstRows.ListIndex
 
             If selIdx < 0 Then
@@ -1550,8 +1670,6 @@ Private Sub btnRemoveRow_Click()
 
             PushUndo
 
-            Dim newCol As New Collection
-            Dim i As Long
             For i = 1 To mSecItems(mCurrentSection).count
                 If i <> selIdx + 1 Then
                     newCol.Add mSecItems(mCurrentSection)(i)
@@ -1578,14 +1696,12 @@ Private Sub btnRemoveRow_Click()
             mEditingRowIdx = mEditingRowIdx + 1
 
             RefreshRowList mCurrentSection
-            Dim newSelIdx As Long
             newSelIdx = mEditingRowIdx - RowIndexOffset(mCurrentSection)
             lstRows.ListIndex = newSelIdx
             LoadTableRowIntoFields mEditingRowIdx
 
         Else
 
-            Dim selIdx As Long
             selIdx = lstRows.ListIndex
 
             If selIdx < 0 Then
@@ -1595,11 +1711,8 @@ Private Sub btnRemoveRow_Click()
 
             PushUndo
 
-            Dim itemIdx As Long
             itemIdx = selIdx + RowIndexOffset(mCurrentSection)
 
-            Dim newCol As New Collection
-            Dim i As Long
             For i = 1 To mSecItems(mCurrentSection).count
                 If i <> itemIdx Then
                     newCol.Add mSecItems(mCurrentSection)(i)
@@ -1612,6 +1725,7 @@ Private Sub btnRemoveRow_Click()
         End If
 
     End If
+
     Exit Sub
 
 ErrHandler:
@@ -1749,6 +1863,8 @@ Private Sub btnEditItem_Click()
     On Error GoTo ErrHandler
 
     If mEditingItemIdx > 0 Then
+    
+        btnCancel.Caption = "Close"
 
         ' Already editing - this click means CONFIRM
         Dim newItem As String
@@ -1816,6 +1932,7 @@ Private Sub btnEditItem_Click()
         btnEditItem.Caption = "Confirm"
         btnAddItem.Caption = "Move Up"
         btnRemoveItem.Caption = "Move Down"
+        btnCancel.Caption = "Cancel"
 
     End If
 
@@ -1832,6 +1949,7 @@ Private Sub ExitItemEditMode()
     btnEditItem.Caption = "Edit"
     btnAddItem.Caption = "+ Add"
     btnRemoveItem.Caption = "– Remove"
+    btnCancel.Caption = "Close"
     txtItem.Text = ""
 
 End Sub
@@ -1957,6 +2075,7 @@ Private Sub btnEditSubItem_Click()
         btnEditSubItem.Caption = "Confirm"
         btnAddSubItem.Caption = "Move Up"
         btnRemoveSubItem.Caption = "Move Down"
+        btnCancel.Caption = "Cancel"
 
     End If
 
@@ -1973,6 +2092,7 @@ Private Sub ExitSubItemEditMode()
     btnEditSubItem.Caption = "Edit"
     btnAddSubItem.Caption = "+ Add"
     btnRemoveSubItem.Caption = "– Remove"
+    btnCancel.Caption = "Close"
     txtSubItem.Text = ""
 
 End Sub
@@ -2026,6 +2146,9 @@ Private Sub SaveCurrentSection()
         Case TYPE_PLAIN
             mSecData(mCurrentSection) = txtContent.Text
             If mCurrentSection = FindSection(SEC_TITLE) Then UpdateFormCaption
+
+        Case TYPE_GROUP
+            mSecData(mCurrentSection) = cboGroup.Value
 
         Case TYPE_TABLE
             SaveRowEditor
@@ -2671,40 +2794,18 @@ ErrHandler:
 End Sub
 
 '====================================================
-' ADD NEW GENERIC SECTION
+' ADD NEW SECTIONS
 '====================================================
-
-Private Sub btnAddSection_Click()
+Private Sub CreateNewSection(ByVal secType As String)
 
     On Error GoTo ErrHandler
 
     Dim secName As String
-    secName = Trim(InputBox("Enter section name:", "Add Section"))
+    secName = Trim(txtSectionName.Text)
 
-    If secName = "" Then Exit Sub
-
-    Dim secType As String
-
-    Dim choice1 As Long
-    choice1 = MsgBox("Is this new section a paragraph description?" & vbCrLf & vbCrLf & _
-                     "Yes = Simple paragraph text" & vbCrLf & _
-                     "No  = More advanced options (list or table)", _
-                     vbYesNo + vbQuestion, "Section Type")
-
-    If choice1 = vbYes Then
-        secType = TYPE_PLAIN
-    Else
-        Dim choice2 As Long
-        choice2 = MsgBox("Is this new section a bulleted list?" & vbCrLf & vbCrLf & _
-                         "Yes = Nested text" & vbCrLf & _
-                         "No  = Table with rows and columns", _
-                         vbYesNo + vbQuestion, "Advanced Section Type")
-
-        If choice2 = vbYes Then
-            secType = TYPE_NESTED
-        Else
-            secType = TYPE_TABLE
-        End If
+    If secName = "" Then
+        MsgBox "Please type a section name first.", vbExclamation
+        Exit Sub
     End If
 
     mSecCount = mSecCount + 1
@@ -2714,19 +2815,25 @@ Private Sub btnAddSection_Click()
     ReDim Preserve mSecItems(1 To mSecCount)
     ReDim Preserve mSecCols(1 To mSecCount)
     ReDim Preserve mSecHasHeader(1 To mSecCount)
-    ReDim Preserve mSecHeaderRow(1 To mSecCount)
 
     mSecNames(mSecCount) = secName
     mSecTypes(mSecCount) = secType
     mSecData(mSecCount) = ""
     mSecCols(mSecCount) = ""
     mSecHasHeader(mSecCount) = False
-    mSecHeaderRow(mSecCount) = ""
     Set mSecItems(mSecCount) = New Collection
 
     RefreshSectionList
 
     SaveCurrentSection
+
+    mAddingSection = False
+    txtSectionName.Visible = False
+    btnAddSection.Caption = "+ Add Section"
+    btnEditSection.Caption = "Edit"
+    btnRemoveSection.Caption = "– Remove"
+    btnCancel.Caption = "Close"
+
     lstSections.ListIndex = mSecCount - 1
     mCurrentSection = mSecCount
     ShowSection mCurrentSection
@@ -2734,7 +2841,206 @@ Private Sub btnAddSection_Click()
     Exit Sub
 
 ErrHandler:
+    HandleFormError "CreateNewSection"
+
+End Sub
+
+Private Sub btnAddSection_Click()
+
+    On Error GoTo ErrHandler
+
+    If mAddingSection Then
+        CreateNewSection TYPE_PLAIN
+        Exit Sub
+    End If
+
+    If mEditingSectionIdx > 0 Then
+
+        If mEditingSectionIdx <= 1 Then Exit Sub
+
+        PushUndo
+        SwapSections mEditingSectionIdx, mEditingSectionIdx - 1
+        mEditingSectionIdx = mEditingSectionIdx - 1
+
+        RefreshSectionList
+        lstSections.ListIndex = mEditingSectionIdx - 1
+
+        Exit Sub
+
+    End If
+
+    mAddingSection = True
+
+    txtSectionName.Text = ""
+    txtSectionName.Visible = True
+    txtSectionName.SetFocus
+
+    btnAddSection.Caption = "Text Section"
+    btnEditSection.Caption = "List Section"
+    btnRemoveSection.Caption = "Table Section"
+    btnCancel.Caption = "Cancel"
+
+    Exit Sub
+
+ErrHandler:
     HandleFormError "btnAddSection_Click"
+
+End Sub
+
+Private Sub btnEditSection_Click()
+
+    On Error GoTo ErrHandler
+
+    If mAddingSection Then
+        CreateNewSection TYPE_LIST
+        Exit Sub
+    End If
+
+    If mEditingSectionIdx > 0 Then
+
+        ' CONFIRM the rename
+        Dim newName As String
+        newName = Trim(txtSectionName.Text)
+
+        If newName = "" Then
+            MsgBox "Section name cannot be blank.", vbExclamation
+            Exit Sub
+        End If
+
+        Dim currentName As String
+        currentName = mSecNames(mEditingSectionIdx)
+
+        If IsBuiltInSectionName(currentName) And LCase(newName) <> LCase(currentName) Then
+            Dim resp As VbMsgBoxResult
+            resp = MsgBox("'" & currentName & "' is a built-in section with special Word formatting." & vbCrLf & vbCrLf & _
+                          "Renaming it will cause it to lose that special formatting when generating the document." & vbCrLf & vbCrLf & _
+                          "Continue renaming anyway?", vbYesNo + vbExclamation, "Built-in Section")
+            If resp = vbNo Then Exit Sub
+        End If
+
+        PushUndo
+        mSecNames(mEditingSectionIdx) = newName
+
+        RefreshSectionList
+
+        Dim savedIdx As Long
+        savedIdx = mEditingSectionIdx
+
+        mEditingSectionIdx = 0
+        btnEditSection.Caption = "Edit"
+        btnAddSection.Caption = "+ Add Section"
+        btnRemoveSection.Caption = "– Remove"
+        btnCancel.Caption = "Close"
+        txtSectionName.Visible = False
+
+        lstSections.ListIndex = savedIdx - 1
+
+        If savedIdx = mCurrentSection Then
+            lblSectionTitle.Caption = newName
+        End If
+
+    Else
+
+        ' ENTER rename/reorder mode
+        Dim selIdx As Long
+        selIdx = lstSections.ListIndex
+
+        If selIdx < 0 Then
+            MsgBox "Select a section to edit.", vbExclamation
+            Exit Sub
+        End If
+
+        Dim secIdx As Long
+        secIdx = selIdx + 1
+
+        txtSectionName.Text = mSecNames(secIdx)
+        txtSectionName.Visible = True
+        txtSectionName.SetFocus
+
+        mEditingSectionIdx = secIdx
+        btnEditSection.Caption = "Confirm"
+        btnAddSection.Caption = "Move Up"
+        btnRemoveSection.Caption = "Move Down"
+        btnCancel.Caption = "Cancel"
+
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnEditSection_Click"
+
+End Sub
+
+Private Sub btnRemoveSection_Click()
+
+    On Error GoTo ErrHandler
+
+    If mAddingSection Then
+        CreateNewSection TYPE_TABLE
+        Exit Sub
+    End If
+
+    If mEditingSectionIdx > 0 Then
+
+        ' Currently in rename/reorder mode: this button is "Move Down"
+        If mEditingSectionIdx >= mSecCount Then Exit Sub
+
+        PushUndo
+        SwapSections mEditingSectionIdx, mEditingSectionIdx + 1
+        mEditingSectionIdx = mEditingSectionIdx + 1
+
+        RefreshSectionList
+        lstSections.ListIndex = mEditingSectionIdx - 1
+
+        Exit Sub
+
+    End If
+
+    Dim selIdx As Long
+    selIdx = lstSections.ListIndex
+
+    If selIdx < 0 Then
+        MsgBox "Select a section to remove.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim secIdx As Long
+    secIdx = selIdx + 1
+
+    If IsBuiltInSectionName(mSecNames(secIdx)) Then
+        MsgBox "'" & mSecNames(secIdx) & "' is a built-in section and cannot be removed.", vbExclamation
+        Exit Sub
+    End If
+
+    If mSecCount <= 1 Then
+        MsgBox "Cannot remove the only remaining section.", vbExclamation
+        Exit Sub
+    End If
+
+    Dim resp As VbMsgBoxResult
+    resp = MsgBox("Remove section '" & mSecNames(secIdx) & "'? This deletes all of its data permanently.", _
+                  vbYesNo + vbExclamation, "Remove Section")
+    If resp = vbNo Then Exit Sub
+
+    PushUndo
+    RemoveSectionAt secIdx
+
+    RefreshSectionList
+
+    Dim newSel As Long
+    newSel = secIdx - 1
+    If newSel < 0 Then newSel = 0
+    If newSel > mSecCount - 1 Then newSel = mSecCount - 1
+
+    lstSections.ListIndex = newSel
+    mCurrentSection = newSel + 1
+    ShowSection mCurrentSection
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnRemoveSection_Click"
 
 End Sub
 
@@ -2786,6 +3092,9 @@ Private Sub LoadFromSheet()
                     
                 Case TYPE_DICTIONARY
                     LoadTableColumns tbl, col, secIdx
+                    
+                Case TYPE_GROUP
+                    LoadPlainColumn tbl, col, secIdx
 
             End Select
 
@@ -3174,6 +3483,10 @@ Private Sub WriteToSheet(ByVal ws As Worksheet)
             Case TYPE_DICTIONARY
                 WriteDictionaryToSheet ws, i, currentCol
                 currentCol = currentCol + 2
+                
+            Case TYPE_GROUP
+                WritePlainToSheet ws, i, currentCol
+                currentCol = currentCol + 1
 
         End Select
 
@@ -3474,13 +3787,73 @@ ErrHandler:
 End Sub
 
 '====================================================
-' CANCEL
+' CANCEL/CLOSE
 '====================================================
 
 Private Sub btnCancel_Click()
 
     On Error GoTo ErrHandler
 
+    ' If any edit/add mode is active anywhere on the form, this button
+    ' backs out of THAT instead of closing the whole form.
+    If mAddingSection Then
+
+        mAddingSection = False
+        txtSectionName.Visible = False
+        txtSectionName.Text = ""
+        btnAddSection.Caption = "+ Add Section"
+        btnEditSection.Caption = "Edit"
+        btnRemoveSection.Caption = "– Remove"
+        btnCancel.Caption = "Close"
+        Exit Sub
+
+    End If
+
+    If mEditingSectionIdx > 0 Then
+
+        mEditingSectionIdx = 0
+        txtSectionName.Visible = False
+        txtSectionName.Text = ""
+        btnEditSection.Caption = "Edit"
+        btnAddSection.Caption = "+ Add Section"
+        btnRemoveSection.Caption = "– Remove"
+        btnCancel.Caption = "Close"
+        Exit Sub
+
+    End If
+
+    If mEditingItemIdx > 0 Then
+        ExitItemEditMode
+        RefreshItemsDisplay
+        Exit Sub
+    End If
+
+    If mEditingSubIdx >= 0 Then
+        ExitSubItemEditMode
+        RefreshSubItems
+        Exit Sub
+    End If
+
+    If mEditingRowIdx > 0 Then
+
+        mEditingRowIdx = 0
+        btnEditRow.Caption = "Edit"
+        btnAddRow.Caption = "+ Add"
+        btnRemoveRow.Caption = "– Remove"
+        btnCancel.Caption = "Close"
+
+        If mSecTypes(mCurrentSection) = TYPE_TABLE Then
+            ClearTableRowFields
+            RefreshRowEditorLabels
+        Else
+            ExitRowEditMode
+        End If
+
+        Exit Sub
+
+    End If
+
+    ' Nothing is mid-edit anywhere - normal close behavior
     If ConfirmDiscard() Then
         Unload Me
     End If
