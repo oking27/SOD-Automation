@@ -15,6 +15,7 @@ Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
 
 
+
 Option Explicit
 
 '====================================================
@@ -462,7 +463,7 @@ Private Sub RefreshCancelButtonCaption()
        Or mEditingSubIdx >= 0 Or mEditingRowIdx > 0 Then
         btnCancel.Caption = "Cancel"
     Else
-        btnCancel.Caption = "Close"
+        btnCancel.Caption = "Close Editor"
     End If
 
     On Error GoTo 0
@@ -719,7 +720,7 @@ Private Sub ShowSection(ByVal idx As Long)
     btnAddSection.Caption = "+ Add Section"
     btnRemoveSection.Caption = "– Remove"
     txtSectionName.Visible = False
-    btnCancel.Caption = "Close"
+    btnCancel.Caption = "Close Editor"
 
     lblSectionTitle.Caption = mSecNames(idx)
 
@@ -1509,7 +1510,7 @@ Private Sub ExitRowEditMode()
     btnAddRow.Caption = "+ Add"
     btnRemoveRow.Caption = "- Remove"
     btnEditRow.Caption = "Edit"
-    btnCancel.Caption = "Close"
+    btnCancel.Caption = "Close Editor"
     txtResCol1.Text = ""
     txtResCol2.Text = ""
     txtResCol3.Text = ""
@@ -1590,7 +1591,7 @@ Private Sub btnEditRow_Click()
             btnEditRow.Caption = "Edit"
             btnAddRow.Caption = "+ Add"
             btnRemoveRow.Caption = "– Remove"
-            btnCancel.Caption = "Close"
+            btnCancel.Caption = "Close Editor"
 
             RefreshRowList mCurrentSection
             ClearTableRowFields
@@ -1866,7 +1867,7 @@ Private Sub btnEditItem_Click()
 
     If mEditingItemIdx > 0 Then
     
-        btnCancel.Caption = "Close"
+        btnCancel.Caption = "Close Editor"
 
         ' Already editing - this click means CONFIRM
         Dim newItem As String
@@ -1951,7 +1952,7 @@ Private Sub ExitItemEditMode()
     btnEditItem.Caption = "Edit"
     btnAddItem.Caption = "+ Add"
     btnRemoveItem.Caption = "– Remove"
-    btnCancel.Caption = "Close"
+    btnCancel.Caption = "Close Editor"
     txtItem.Text = ""
 
 End Sub
@@ -2094,7 +2095,7 @@ Private Sub ExitSubItemEditMode()
     btnEditSubItem.Caption = "Edit"
     btnAddSubItem.Caption = "+ Add"
     btnRemoveSubItem.Caption = "– Remove"
-    btnCancel.Caption = "Close"
+    btnCancel.Caption = "Close Editor"
     txtSubItem.Text = ""
 
 End Sub
@@ -2834,7 +2835,7 @@ Private Sub CreateNewSection(ByVal secType As String)
     btnAddSection.Caption = "+ Add Section"
     btnEditSection.Caption = "Edit"
     btnRemoveSection.Caption = "– Remove"
-    btnCancel.Caption = "Close"
+    btnCancel.Caption = "Close Editor"
 
     lstSections.ListIndex = mSecCount - 1
     mCurrentSection = mSecCount
@@ -2932,7 +2933,7 @@ Private Sub btnEditSection_Click()
         btnEditSection.Caption = "Edit"
         btnAddSection.Caption = "+ Add Section"
         btnRemoveSection.Caption = "– Remove"
-        btnCancel.Caption = "Close"
+        btnCancel.Caption = "Close Editor"
         txtSectionName.Visible = False
 
         lstSections.ListIndex = savedIdx - 1
@@ -3806,7 +3807,7 @@ Private Sub btnCancel_Click()
         btnAddSection.Caption = "+ Add Section"
         btnEditSection.Caption = "Edit"
         btnRemoveSection.Caption = "– Remove"
-        btnCancel.Caption = "Close"
+        btnCancel.Caption = "Close Editor"
         Exit Sub
 
     End If
@@ -3819,7 +3820,7 @@ Private Sub btnCancel_Click()
         btnEditSection.Caption = "Edit"
         btnAddSection.Caption = "+ Add Section"
         btnRemoveSection.Caption = "– Remove"
-        btnCancel.Caption = "Close"
+        btnCancel.Caption = "Close Editor"
         Exit Sub
 
     End If
@@ -3842,7 +3843,7 @@ Private Sub btnCancel_Click()
         btnEditRow.Caption = "Edit"
         btnAddRow.Caption = "+ Add"
         btnRemoveRow.Caption = "– Remove"
-        btnCancel.Caption = "Close"
+        btnCancel.Caption = "Close Editor"
 
         If mSecTypes(mCurrentSection) = TYPE_TABLE Then
             ClearTableRowFields
