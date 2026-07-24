@@ -13,6 +13,9 @@ Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = True
 Attribute VB_Exposed = False
+
+
+
 Option Explicit
 
 '====================================================
@@ -89,6 +92,17 @@ Private mUndoSecIdx As Long
 Private mUndoItems As Collection
 Private mUndoData As String
 Private mUndoCols As String
+
+Private mEditSnapshot As Collection
+Private mEditSnapshotSec As Long
+
+Private mSubEditSnapshot As Collection
+Private mSubEditSnapshotSec As Long
+Private mSubEditSnapshotItemIdx As Long
+
+Private mRowEditSnapshot As Collection
+Private mRowEditSnapshotSec As Long
+
 
 Private Sub PushUndo()
 
@@ -432,7 +446,7 @@ Private Sub HandleFormError(ByVal procName As String)
            "Error " & Err.Number & ": " & Err.Description & vbCrLf & vbCrLf & _
            "Your other entries are safe. Please try again, and if this repeats, " & _
            "note down what you were doing and report it.", _
-           vbExclamation, "SOD Form - Error"
+           vbExclamation, "SOD Form — Error"
 
 End Sub
 
@@ -450,6 +464,19 @@ End Sub
 
 Private Sub lstSubItems_Click()
 
+    On Error GoTo ErrHandler
+
+    If mLoading Then Exit Sub
+
+    CancelAnyActiveEditMode
+
+    UpdateSubItemControls
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "lstSubItems_Click"
+
 End Sub
 
 Private Sub RefreshCancelButtonCaption()
@@ -460,7 +487,7 @@ Private Sub RefreshCancelButtonCaption()
        Or mEditingSubIdx >= 0 Or mEditingRowIdx > 0 Then
         btnCancel.Caption = "Cancel"
     Else
-        btnCancel.Caption = "Close"
+        btnCancel.Caption = "Close Editor"
     End If
 
     On Error GoTo 0
@@ -539,17 +566,36 @@ Private Sub UserForm_Initialize()
     mLoading = True
     mEditingItemIdx = 0
     mEditingSubIdx = -1
-    
+    mEditingRowIdx = 0
+    mEditingSectionIdx = 0
+    mAddingSection = False
     mJustSaved = False
+    mUndoAvailable = False
 
-    InitSections
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+
+    If ws.ListObjects.count > 0 Then
+        If ws.ListObjects(1).ListRows.count > 0 Then
+            mSecCount = 0
+            LoadFromSheet
+        Else
+            InitSections
+        End If
+    Else
+        InitSections
+    End If
+
+    PopulateGroupDropdown
     RefreshSectionList
-    LoadFromSheet
 
-    mCurrentSection = 1
-    lstSections.ListIndex = 0
-    ShowSection 1
+    If mSecCount > 0 Then
+        mCurrentSection = 1
+        lstSections.ListIndex = 0
+        ShowSection 1
+    End If
 
+    UpdateSectionButtons
     mLoading = False
     RefreshUndoButton
     UpdateFormCaption
@@ -636,6 +682,60 @@ ErrHandler:
 
 End Sub
 
+Private Sub UpdateSectionButtons()
+
+    On Error GoTo ErrHandler
+
+    Dim selIdx As Long
+    selIdx = lstSections.ListIndex
+
+    If selIdx < 0 Then
+        btnRemoveSection.Enabled = False
+        btnEditSection.Enabled = False
+        Exit Sub
+    End If
+
+    Dim secIdx As Long
+    secIdx = selIdx + 1
+
+    Dim isBuiltIn As Boolean
+    isBuiltIn = IsBuiltInSectionName(mSecNames(secIdx))
+
+    btnRemoveSection.Enabled = Not isBuiltIn
+    btnEditSection.Enabled = True   ' rename is still allowed with a warning
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateSectionButtons"
+
+End Sub
+
+Private Sub PopulateGroupDropdown()
+
+    On Error GoTo ErrHandler
+
+    cboGroup.Clear
+
+    ' TODO: replace with your real Group options
+    cboGroup.AddItem "Group A"
+    cboGroup.AddItem "Group B"
+    cboGroup.AddItem "Group C"
+
+    ' Re-apply saved value if one was loaded from the sheet
+    Dim groupIdx As Long
+    groupIdx = FindSection(SEC_GROUP)
+    If groupIdx > 0 Then
+        cboGroup.Value = mSecData(groupIdx)
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "PopulateGroupDropdown"
+
+End Sub
+
 Public Sub OpenSODEditor()
     frmSOD.Show
 End Sub
@@ -662,6 +762,8 @@ Private Sub RefreshSectionList()
         lstSections.ListIndex = sel
     End If
 
+    UpdateSectionButtons
+
     Exit Sub
 
 ErrHandler:
@@ -676,10 +778,13 @@ Private Sub lstSections_Click()
     If mLoading Then Exit Sub
     If lstSections.ListIndex < 0 Then Exit Sub
 
+    CancelAnyActiveEditMode
+
     SaveCurrentSection
 
     mCurrentSection = lstSections.ListIndex + 1
     ShowSection mCurrentSection
+    UpdateSectionButtons
 
     Exit Sub
 
@@ -713,11 +818,25 @@ Private Sub ShowSection(ByVal idx As Long)
     btnEditRow.Caption = "Edit"
     
     mEditingSectionIdx = 0
-    btnEditSection.Caption = "Edit"
+    btnEditSection.Caption = "Edit Section"
     btnAddSection.Caption = "+ Add Section"
-    btnRemoveSection.Caption = "– Remove"
+    btnRemoveSection.Caption = "– Remove Section"
     txtSectionName.Visible = False
-    btnCancel.Caption = "Close"
+    btnCancel.Caption = "Close Editor"
+    
+    txtSubItem.Enabled = False
+    btnAddSubItem.Enabled = False
+    btnEditSubItem.Enabled = False
+    btnRemoveSubItem.Enabled = False
+    
+    Set mEditSnapshot = Nothing
+    Set mSubEditSnapshot = Nothing
+    Set mRowEditSnapshot = Nothing
+    
+    btnEditItem.Enabled = False
+    btnRemoveItem.Enabled = False
+    btnEditRow.Enabled = False
+    btnRemoveRow.Enabled = False
 
     lblSectionTitle.Caption = mSecNames(idx)
 
@@ -835,6 +954,7 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
     btnRemoveRow.Caption = "– Remove"
 
     RefreshRowList idx
+    UpdateRowControls
 
     Exit Sub
 
@@ -866,7 +986,7 @@ Private Sub ShowListSection(ByVal idx As Long)
     For i = 1 To mSecItems(idx).count
         Dim displayVal As String
         displayVal = mSecItems(idx)(i)
-        If Len(displayVal) > 90 Then displayVal = Left(displayVal, 87) & "..."
+        If Len(displayVal) > 100 Then displayVal = Left(displayVal, 97) & "..."
         lstItems.AddItem displayVal
     Next i
 
@@ -876,6 +996,8 @@ Private Sub ShowListSection(ByVal idx As Long)
     btnEditItem.Visible = True
     txtItem.Visible = True
     txtItem.Text = ""
+
+    UpdateItemControls
 
     Exit Sub
 
@@ -889,6 +1011,12 @@ Private Sub ShowNestedSection(ByVal idx As Long)
     On Error GoTo ErrHandler
 
     lstItems.Clear
+    lblSubItems.Caption = "Sub-items:"   ' reset before any item is selected
+    txtSubItem.Text = ""
+
+    UpdateSubItemControls   ' disable since nothing selected yet
+    UpdateItemControls   ' nothing selected yet
+    
     Dim i As Long
     For i = 1 To mSecItems(idx).count
         lstItems.AddItem Split(mSecItems(idx)(i), "|")(0)
@@ -912,8 +1040,10 @@ Private Sub ShowNestedSection(ByVal idx As Long)
 
     If lstItems.ListCount > 0 Then
         lstItems.ListIndex = 0
-        RefreshSubItems
+        UpdateItemControls      ' row 0 now selected
         UpdateSubItemsLabel
+        UpdateSubItemControls   ' re-enable since row 0 is now selected
+        RefreshSubItems
     End If
 
     Exit Sub
@@ -926,13 +1056,6 @@ End Sub
 Private Sub ShowGroupSection(ByVal idx As Long)
 
     On Error GoTo ErrHandler
-
-    cboGroup.Clear
-
-    ' TODO: replace this placeholder list with your real Group options
-    cboGroup.AddItem "Group A"
-    cboGroup.AddItem "Group B"
-    cboGroup.AddItem "Group C"
 
     cboGroup.Visible = True
     cboGroup.Value = mSecData(idx)
@@ -970,6 +1093,7 @@ Private Sub ShowDictionarySection(ByVal idx As Long)
     btnRemoveRow.Caption = "– Remove"
 
     RefreshRowList idx
+    UpdateRowControls
 
     Exit Sub
 
@@ -1018,6 +1142,7 @@ Private Sub ShowTableSection(ByVal idx As Long)
     btnEditRow.Caption = "Edit"
 
     RefreshRowList idx
+    UpdateRowControls
     BuildRowEditorFields
 
     Exit Sub
@@ -1301,6 +1426,8 @@ Private Sub RefreshRowList(ByVal idx As Long)
     Next i
 
     If mSecTypes(idx) = TYPE_TABLE Then
+    
+        UpdateRowControls
 
         chkHasHeader.Enabled = (mSecItems(idx).count >= 1)
 
@@ -1417,6 +1544,7 @@ Private Sub btnAddRow_Click()
 
             RefreshRowList mCurrentSection
             lstRows.ListIndex = lstRows.ListCount - 1
+            UpdateRowControls
 
         End If
 
@@ -1505,9 +1633,9 @@ Private Sub ExitRowEditMode()
 
     mEditingRowIdx = 0
     btnAddRow.Caption = "+ Add"
-    btnRemoveRow.Caption = "- Remove"
+    btnRemoveRow.Caption = "– Remove"
     btnEditRow.Caption = "Edit"
-    btnCancel.Caption = "Close"
+    btnCancel.Caption = "Close Editor"
     txtResCol1.Text = ""
     txtResCol2.Text = ""
     txtResCol3.Text = ""
@@ -1565,6 +1693,9 @@ Private Sub btnEditRow_Click()
                 txtResCol1.SetFocus
             End If
 
+            Set mRowEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
+            mRowEditSnapshotSec = mCurrentSection
+
             mEditingRowIdx = rowIdx
             btnEditRow.Caption = "Confirm"
             btnAddRow.Caption = "Move Up"
@@ -1588,6 +1719,7 @@ Private Sub btnEditRow_Click()
             btnEditRow.Caption = "Edit"
             btnAddRow.Caption = "+ Add"
             btnRemoveRow.Caption = "– Remove"
+            btnCancel.Caption = "Close Editor"
 
             RefreshRowList mCurrentSection
             ClearTableRowFields
@@ -1656,6 +1788,7 @@ Private Sub btnRemoveRow_Click()
             mEditingRowIdx = mEditingRowIdx + 1
 
             RefreshRowList mCurrentSection
+            UpdateRowControls
             lstRows.ListIndex = mEditingRowIdx - 1
 
         Else
@@ -1732,6 +1865,32 @@ ErrHandler:
 
 End Sub
 
+Private Sub CancelRowEditMode()
+
+    If Not mRowEditSnapshot Is Nothing Then
+        If mRowEditSnapshotSec = mCurrentSection Then
+            Set mSecItems(mCurrentSection) = CloneCollection(mRowEditSnapshot)
+            RefreshRowList mCurrentSection
+        End If
+    End If
+
+    mEditingRowIdx = 0
+    btnEditRow.Caption = "Edit"
+    btnAddRow.Caption = "+ Add"
+    btnRemoveRow.Caption = "– Remove"
+    btnCancel.Caption = "Close Editor"
+
+    If mSecTypes(mCurrentSection) = TYPE_TABLE Then
+        ClearTableRowFields
+        RefreshRowEditorLabels
+    Else
+        ExitRowEditMode
+    End If
+
+    Set mRowEditSnapshot = Nothing
+
+End Sub
+
 Private Sub lstRows_Click()
 
     On Error GoTo ErrHandler
@@ -1739,9 +1898,9 @@ Private Sub lstRows_Click()
     If mLoading Then Exit Sub
     If lstRows.ListIndex < 0 Then Exit Sub
 
-    ' Every section type now uses click-to-select, explicit Edit to open -
-    ' consistent with Resources/Dictionary. Nothing auto-saves or
-    ' auto-opens on a mere click.
+    CancelAnyActiveEditMode
+
+    UpdateRowControls
 
     Exit Sub
 
@@ -1750,6 +1909,56 @@ ErrHandler:
 
 End Sub
 
+Private Sub UpdateItemControls()
+
+    On Error GoTo ErrHandler
+
+    If mEditingItemIdx > 0 Then Exit Sub
+
+    ' If currently editing a sub-item, lock out ALL item-level controls
+    If mEditingSubIdx >= 0 Then
+        txtItem.Enabled = False
+        txtItem.BackColor = &H8000000F
+        btnAddItem.Enabled = False
+        btnEditItem.Enabled = False
+        btnRemoveItem.Enabled = False
+        Exit Sub
+    End If
+
+    Dim hasSelection As Boolean
+    hasSelection = (lstItems.ListIndex >= 0)
+
+    txtItem.Enabled = True
+    txtItem.BackColor = &H80000005
+    btnAddItem.Enabled = True
+    btnEditItem.Enabled = hasSelection
+    btnRemoveItem.Enabled = hasSelection
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateItemControls"
+
+End Sub
+
+Private Sub UpdateRowControls()
+
+    On Error GoTo ErrHandler
+
+    If mEditingRowIdx > 0 Then Exit Sub   ' don't interfere with edit mode
+
+    Dim hasSelection As Boolean
+    hasSelection = (lstRows.ListIndex >= 0)
+
+    btnEditRow.Enabled = hasSelection
+    btnRemoveRow.Enabled = hasSelection
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateRowControls"
+
+End Sub
 
 Private Function TableColumnLabel(ByVal colIdx As Long) As String
 
@@ -1863,7 +2072,7 @@ Private Sub btnEditItem_Click()
 
     If mEditingItemIdx > 0 Then
     
-        btnCancel.Caption = "Close"
+        btnCancel.Caption = "Close Editor"
 
         ' Already editing - this click means CONFIRM
         Dim newItem As String
@@ -1905,7 +2114,6 @@ Private Sub btnEditItem_Click()
 
     Else
 
-        ' Not editing - ENTER edit mode
         Dim selIdx As Long
         selIdx = lstItems.ListIndex
 
@@ -1927,7 +2135,12 @@ Private Sub btnEditItem_Click()
         txtItem.Text = current
         txtItem.SetFocus
 
+        ' Snapshot the collection NOW before any moves happen
+        Set mEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
+        mEditSnapshotSec = mCurrentSection
+
         mEditingItemIdx = itemIdx
+        UpdateSubItemControls   ' lock out sub-item buttons while editing parent
         btnEditItem.Caption = "Confirm"
         btnAddItem.Caption = "Move Up"
         btnRemoveItem.Caption = "Move Down"
@@ -1945,10 +2158,40 @@ End Sub
 Private Sub ExitItemEditMode()
 
     mEditingItemIdx = 0
+    UpdateSubItemControls   ' restore sub-item buttons
+    UpdateItemControls
     btnEditItem.Caption = "Edit"
     btnAddItem.Caption = "+ Add"
     btnRemoveItem.Caption = "– Remove"
+    btnCancel.Caption = "Close Editor"
     txtItem.Text = ""
+    Set mEditSnapshot = Nothing
+
+End Sub
+
+Private Sub CancelItemEditMode()
+
+    If Not mEditSnapshot Is Nothing Then
+        If mEditSnapshotSec = mCurrentSection Then
+            Set mSecItems(mCurrentSection) = CloneCollection(mEditSnapshot)
+            RefreshItemsDisplay
+            If mSecTypes(mCurrentSection) = TYPE_NESTED Then
+                lstSubItems.Clear
+                UpdateSubItemsLabel
+            End If
+        End If
+    End If
+
+    mEditingItemIdx = 0
+    btnEditItem.Caption = "Edit"
+    btnAddItem.Caption = "+ Add"
+    btnRemoveItem.Caption = "– Remove"
+    btnCancel.Caption = "Close Editor"
+    txtItem.Text = ""
+    Set mEditSnapshot = Nothing
+
+    UpdateItemControls
+    UpdateSubItemControls   ' restore sub-item controls now that item edit is over
 
 End Sub
 
@@ -2031,7 +2274,7 @@ Private Sub btnEditSubItem_Click()
         savedSubIdx = mEditingSubIdx
 
         ExitSubItemEditMode
-
+        UpdateItemControls   ' restore item controls now that sub-item edit is over
         RefreshSubItems
         lstSubItems.ListIndex = savedSubIdx
 
@@ -2069,7 +2312,14 @@ Private Sub btnEditSubItem_Click()
         txtSubItem.Text = subs2(subIdx)
         txtSubItem.SetFocus
 
+        ' Snapshot before any moves
+        Set mSubEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
+        mSubEditSnapshotSec = mCurrentSection
+        mSubEditSnapshotItemIdx = lstItems.ListIndex
+
         mEditingSubIdx = subIdx
+        UpdateItemControls              ' gray out item txt and Add btn immediately
+        UpdateSubItemControls
         btnEditSubItem.Caption = "Confirm"
         btnAddSubItem.Caption = "Move Up"
         btnRemoveSubItem.Caption = "Move Down"
@@ -2090,7 +2340,38 @@ Private Sub ExitSubItemEditMode()
     btnEditSubItem.Caption = "Edit"
     btnAddSubItem.Caption = "+ Add"
     btnRemoveSubItem.Caption = "– Remove"
+    btnCancel.Caption = "Close Editor"
     txtSubItem.Text = ""
+    Set mSubEditSnapshot = Nothing
+
+    UpdateSubItemControls   ' restore sub-item controls
+
+End Sub
+
+Private Sub CancelSubItemEditMode()
+
+    If Not mSubEditSnapshot Is Nothing Then
+        If mSubEditSnapshotSec = mCurrentSection Then
+            Set mSecItems(mCurrentSection) = CloneCollection(mSubEditSnapshot)
+            lstItems.ListIndex = mSubEditSnapshotItemIdx
+            RefreshSubItems
+            UpdateSubItemsLabel
+        End If
+    End If
+
+    mEditingSubIdx = -1
+    UpdateItemControls   ' restore item buttons
+    UpdateSubItemControls   ' re-evaluate enabled state now that edit mode is off
+    btnEditSubItem.Caption = "Edit"
+    btnAddSubItem.Caption = "+ Add"
+    btnRemoveSubItem.Caption = "– Remove"
+    btnCancel.Caption = "Close Editor"
+    txtSubItem.Text = ""
+    Set mSubEditSnapshot = Nothing
+    UpdateItemControls
+    UpdateSubItemControls
+
+    Exit Sub
 
 End Sub
 
@@ -2190,13 +2471,19 @@ Private Sub lstItems_Click()
     On Error GoTo ErrHandler
 
     If mLoading Then Exit Sub
-    If mSecTypes(mCurrentSection) <> TYPE_NESTED Then Exit Sub
     If lstItems.ListIndex < 0 Then Exit Sub
 
-    lstSubItems.Clear
-    txtSubItem.Text = ""
-    UpdateSubItemsLabel
-    RefreshSubItems
+    CancelAnyActiveEditMode
+
+    UpdateItemControls
+
+    If mSecTypes(mCurrentSection) = TYPE_NESTED Then
+        lstSubItems.Clear
+        txtSubItem.Text = ""
+        UpdateSubItemsLabel
+        UpdateSubItemControls
+        RefreshSubItems
+    End If
 
     Exit Sub
 
@@ -2275,11 +2562,54 @@ Private Sub RefreshSubItems()
             lstSubItems.AddItem txt
         End If
     Next i
+    
+    UpdateSubItemControls
 
     Exit Sub
 
 ErrHandler:
     HandleFormError "RefreshSubItems"
+
+End Sub
+
+Private Sub UpdateSubItemControls()
+
+    On Error GoTo ErrHandler
+
+    ' Don't interfere while in sub-item edit mode (buttons repurposed)
+    If mEditingSubIdx >= 0 Then Exit Sub
+
+    ' If currently editing a parent item, lock out sub-item buttons entirely
+    If mEditingItemIdx > 0 Then
+        txtSubItem.Enabled = False
+        btnAddSubItem.Enabled = False
+        btnEditSubItem.Enabled = False
+        btnRemoveSubItem.Enabled = False
+        txtSubItem.BackColor = &H8000000F
+        Exit Sub
+    End If
+
+    Dim hasParent As Boolean
+    Dim hasSubSelection As Boolean
+
+    hasParent = (lstItems.ListIndex >= 0)
+    hasSubSelection = (lstSubItems.ListIndex >= 0)
+
+    txtSubItem.Enabled = hasParent
+    btnAddSubItem.Enabled = hasParent
+    btnEditSubItem.Enabled = hasSubSelection
+    btnRemoveSubItem.Enabled = hasSubSelection
+
+    If Not hasParent Then
+        txtSubItem.BackColor = &H8000000F
+    Else
+        txtSubItem.BackColor = &H80000005
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateSubItemControls"
 
 End Sub
 
@@ -2342,6 +2672,7 @@ Private Sub btnAddItem_Click()
         ' Select the last item added (handles both single-add and
         ' multi-line paste-splitting) so sub-items can be added immediately
         lstItems.ListIndex = lstItems.ListCount - 1
+        UpdateItemControls
 
         If mSecTypes(mCurrentSection) = TYPE_NESTED Then
             UpdateSubItemsLabel
@@ -2402,6 +2733,8 @@ Private Sub btnRemoveItem_Click()
 
         lstItems.RemoveItem selIdx
         lstSubItems.Clear
+        UpdateSubItemControls   ' nothing selected now, disable sub-item controls
+        UpdateItemControls
 
     End If
 
@@ -2668,6 +3001,7 @@ Private Sub btnAddSubItem_Click()
         txtSubItem.Text = ""
         ' Select the last sub-item added
         lstSubItems.ListIndex = lstSubItems.ListCount - 1
+        UpdateSubItemControls
 
     End If
 
@@ -2780,6 +3114,7 @@ Private Sub btnRemoveSubItem_Click()
         Set mSecItems(mCurrentSection) = newCol2
 
         lstSubItems.RemoveItem subIdx
+        UpdateSubItemControls
 
     End If
 
@@ -2827,8 +3162,9 @@ Private Sub CreateNewSection(ByVal secType As String)
     mAddingSection = False
     txtSectionName.Visible = False
     btnAddSection.Caption = "+ Add Section"
-    btnEditSection.Caption = "Edit"
-    btnRemoveSection.Caption = "– Remove"
+    btnEditSection.Caption = "Edit Section"
+    btnRemoveSection.Caption = "– Remove Section"
+    btnCancel.Caption = "Close Editor"
 
     lstSections.ListIndex = mSecCount - 1
     mCurrentSection = mSecCount
@@ -2923,9 +3259,10 @@ Private Sub btnEditSection_Click()
         savedIdx = mEditingSectionIdx
 
         mEditingSectionIdx = 0
-        btnEditSection.Caption = "Edit"
+        btnEditSection.Caption = "Edit Section"
         btnAddSection.Caption = "+ Add Section"
-        btnRemoveSection.Caption = "– Remove"
+        btnRemoveSection.Caption = "– Remove Section"
+        btnCancel.Caption = "Close Editor"
         txtSectionName.Visible = False
 
         lstSections.ListIndex = savedIdx - 1
@@ -3014,11 +3351,11 @@ Private Sub btnRemoveSection_Click()
     End If
 
     Dim resp As VbMsgBoxResult
-    resp = MsgBox("Remove section '" & mSecNames(secIdx) & "'? This deletes all of its data permanently.", _
+    resp = MsgBox("Remove section '" & mSecNames(secIdx) & "'?" & vbCrLf & vbCrLf & _
+                  "This permanently deletes all of its data and cannot be undone. Consider saving first.", _
                   vbYesNo + vbExclamation, "Remove Section")
     If resp = vbNo Then Exit Sub
 
-    PushUndo
     RemoveSectionAt secIdx
 
     RefreshSectionList
@@ -3056,46 +3393,93 @@ Private Sub LoadFromSheet()
     Set tbl = ws.ListObjects(1)
     If tbl.ListRows.count = 0 Then Exit Sub
 
+    ' Sheet exists with data - build section list entirely from sheet
+    ' column order, not from InitSections' fixed layout. This means
+    ' whatever the sheet has (including user-created sections) is
+    ' preserved in order and typed correctly.
+    mSecCount = 0
+
     Dim col As Long
-    Dim hdr As String
+    col = 1
 
-    For col = 1 To tbl.ListColumns.count
+    Do While col <= tbl.ListColumns.count
 
+        Dim hdr As String
         hdr = Trim(tbl.ListColumns(col).name)
 
-        Dim secIdx As Long
-        secIdx = FindSection(hdr)
+        ' Skip helper columns - they belong to the preceding section
+        ' and get consumed by that section's loader, not as new sections
+        If IsTableColumn(hdr) Or IsBulletColumn(hdr) Then
+            col = col + 1
+        Else
 
-        If secIdx > 0 Then
+            Dim secType As String
+            secType = DetectSectionType(hdr, tbl, col)
 
-            Select Case mSecTypes(secIdx)
+            AddDynamicSection hdr, secType
 
-                Case TYPE_PLAIN
+            Dim secIdx As Long
+            secIdx = mSecCount
+
+            Select Case secType
+
+                Case TYPE_PLAIN, TYPE_GROUP
                     LoadPlainColumn tbl, col, secIdx
+                    col = col + 1
 
                 Case TYPE_LIST
                     LoadListColumn tbl, col, secIdx
+                    col = col + 1
 
                 Case TYPE_NESTED
                     LoadNestedColumns tbl, col, secIdx
+                    ' skip past any contiguous Bullet* helper columns
+                    Do While col + 1 <= tbl.ListColumns.count
+                        Dim nextNested As String
+                        nextNested = LCase(Trim(tbl.ListColumns(col + 1).name))
+                        If Left(nextNested, 6) = "bullet" And InStr(nextNested, " ") = 0 Then
+                            col = col + 1
+                        Else
+                            Exit Do
+                        End If
+                    Loop
+                    col = col + 1
 
                 Case TYPE_TABLE
                     LoadTableColumns tbl, col, secIdx
-                    
-                Case TYPE_RESOURCES
-                    LoadTableColumns tbl, col, secIdx
-                    
+                    ' skip past any contiguous Table* helper columns
+                    Do While col + 1 <= tbl.ListColumns.count
+                        Dim nextTable As String
+                        nextTable = LCase(Trim(tbl.ListColumns(col + 1).name))
+                        If Left(nextTable, 5) = "table" And InStr(nextTable, " ") = 0 Then
+                            col = col + 1
+                        Else
+                            Exit Do
+                        End If
+                    Loop
+                    col = col + 1
+
                 Case TYPE_DICTIONARY
                     LoadTableColumns tbl, col, secIdx
-                    
-                Case TYPE_GROUP
-                    LoadPlainColumn tbl, col, secIdx
+                    ' always exactly 2 columns (section col + Table2)
+                    If col + 1 <= tbl.ListColumns.count Then col = col + 1
+                    col = col + 1
+
+                Case TYPE_RESOURCES
+                    LoadTableColumns tbl, col, secIdx
+                    ' always exactly 3 columns (section col + Table2 + Table3)
+                    If col + 1 <= tbl.ListColumns.count Then col = col + 1
+                    If col + 1 <= tbl.ListColumns.count Then col = col + 1
+                    col = col + 1
+
+                Case Else
+                    col = col + 1
 
             End Select
 
         End If
 
-    Next col
+    Loop
 
     Exit Sub
 
@@ -3361,7 +3745,6 @@ ErrHandler:
 
 End Sub
 
-
 Private Function IsHeaderLookalikeRow(ByVal secIdx As Long, ByVal rowStr As String) As Boolean
 
     Dim parts() As String
@@ -3384,6 +3767,86 @@ Private Function IsHeaderLookalikeRow(ByVal secIdx As Long, ByVal rowStr As Stri
 
 End Function
 
+Private Function DetectSectionType(ByVal hdr As String, _
+                                    ByVal tbl As ListObject, _
+                                    ByVal col As Long) As String
+
+    ' Check built-in names first — these get their special type
+    ' regardless of whether they were pre-loaded in InitSections
+    Select Case LCase(Trim(hdr))
+        Case LCase(SEC_TITLE):      DetectSectionType = TYPE_PLAIN:      Exit Function
+        Case LCase(SEC_GROUP):      DetectSectionType = TYPE_GROUP:      Exit Function
+        Case LCase(SEC_PURPOSE):    DetectSectionType = TYPE_PLAIN:      Exit Function
+        Case LCase(SEC_SCOPE):      DetectSectionType = TYPE_PLAIN:      Exit Function
+        Case LCase(SEC_DICTIONARY): DetectSectionType = TYPE_DICTIONARY: Exit Function
+        Case LCase(SEC_ROLES):      DetectSectionType = TYPE_NESTED:     Exit Function
+        Case LCase(SEC_OBJECTIVES): DetectSectionType = TYPE_LIST:       Exit Function
+        Case LCase(SEC_STEPS):      DetectSectionType = TYPE_NESTED:     Exit Function
+        Case LCase(SEC_KPIS):       DetectSectionType = TYPE_LIST:       Exit Function
+        Case LCase(SEC_RESOURCES):  DetectSectionType = TYPE_RESOURCES:  Exit Function
+    End Select
+
+    ' Unknown section name - detect from adjacent helper columns
+    If col < tbl.ListColumns.count Then
+
+        Dim nextHdr As String
+        nextHdr = LCase(Trim(tbl.ListColumns(col + 1).name))
+
+        If Left(nextHdr, 5) = "table" And InStr(nextHdr, " ") = 0 Then
+            DetectSectionType = TYPE_TABLE
+            Exit Function
+        End If
+
+        If Left(nextHdr, 6) = "bullet" And InStr(nextHdr, " ") = 0 Then
+            DetectSectionType = TYPE_NESTED
+            Exit Function
+        End If
+
+    End If
+
+    ' No helper columns - plain text
+    DetectSectionType = TYPE_PLAIN
+
+End Function
+
+Private Sub AddDynamicSection(ByVal secName As String, ByVal secType As String)
+
+    On Error GoTo ErrHandler
+
+    mSecCount = mSecCount + 1
+
+    ' First call: initialize arrays from scratch since they've never
+    ' been ReDim'd and ReDim Preserve on uninitialized arrays throws Error 9
+    If mSecCount = 1 Then
+        ReDim mSecNames(1 To 1)
+        ReDim mSecTypes(1 To 1)
+        ReDim mSecData(1 To 1)
+        ReDim mSecItems(1 To 1)
+        ReDim mSecCols(1 To 1)
+        ReDim mSecHasHeader(1 To 1)
+    Else
+        ReDim Preserve mSecNames(1 To mSecCount)
+        ReDim Preserve mSecTypes(1 To mSecCount)
+        ReDim Preserve mSecData(1 To mSecCount)
+        ReDim Preserve mSecItems(1 To mSecCount)
+        ReDim Preserve mSecCols(1 To mSecCount)
+        ReDim Preserve mSecHasHeader(1 To mSecCount)
+    End If
+
+    mSecNames(mSecCount) = secName
+    mSecTypes(mSecCount) = secType
+    mSecData(mSecCount) = ""
+    mSecCols(mSecCount) = ""
+    mSecHasHeader(mSecCount) = False
+    Set mSecItems(mSecCount) = New Collection
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "AddDynamicSection"
+
+End Sub
+
 '====================================================
 ' SAVE TO SHEET
 '====================================================
@@ -3398,7 +3861,7 @@ Private Sub btnSave_Click()
     If ws.ListObjects.count > 0 Then
         If ws.ListObjects(1).ListRows.count > 0 Then
             Dim resp As VbMsgBoxResult
-            resp = MsgBox("This sheet already has data. Saving will overwrite it." & vbCrLf & vbCrLf & _
+            resp = MsgBox("Saving will overwrite the previous data on the sheet with the new data from this form." & vbCrLf & vbCrLf & _
                           "Continue?", vbYesNo + vbExclamation, "Overwrite Warning")
             If resp = vbNo Then Exit Sub
         End If
@@ -3650,6 +4113,7 @@ Private Sub WriteTableToSheet(ByVal ws As Worksheet, _
     Dim colCount As Long
     colCount = UBound(Split(mSecCols(secIdx), "~")) + 1
 
+    ' Write Excel table column headers (TableN naming convention)
     ws.Cells(1, startCol).Value = mSecNames(secIdx)
 
     Dim c As Long
@@ -3660,21 +4124,20 @@ Private Sub WriteTableToSheet(ByVal ws As Worksheet, _
     Dim r As Long
     r = 2
 
-    If mSecHasHeader(secIdx) And mSecHeaderRow(secIdx) <> "" Then
-
-        Dim headerParts() As String
-        headerParts = Split(mSecHeaderRow(secIdx), "|")
+    ' If header checkbox is unchecked, write a blank row 1 first so
+    ' PopulateSOD knows there's no Word table header. We write this
+    ' directly to the sheet without touching mSecItems - data is safe.
+    If Not mSecHasHeader(secIdx) Then
 
         For c = 0 To colCount - 1
-            If c <= UBound(headerParts) Then
-                ws.Cells(r, startCol + c).Value = Trim(headerParts(c))
-            End If
+            ws.Cells(r, startCol + c).Value = ""
         Next c
 
         r = r + 1
 
     End If
 
+    ' Write all actual data rows from mSecItems unchanged
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
 
@@ -3684,6 +4147,8 @@ Private Sub WriteTableToSheet(ByVal ws As Worksheet, _
         For c = 0 To colCount - 1
             If c <= UBound(parts) Then
                 ws.Cells(r, startCol + c).Value = Trim(parts(c))
+            Else
+                ws.Cells(r, startCol + c).Value = ""
             End If
         Next c
 
@@ -3789,63 +4254,44 @@ Private Sub btnCancel_Click()
 
     On Error GoTo ErrHandler
 
-    ' If any edit/add mode is active anywhere on the form, this button
-    ' backs out of THAT instead of closing the whole form.
     If mAddingSection Then
-
         mAddingSection = False
         txtSectionName.Visible = False
         txtSectionName.Text = ""
         btnAddSection.Caption = "+ Add Section"
-        btnEditSection.Caption = "Edit"
-        btnRemoveSection.Caption = "– Remove"
+        btnEditSection.Caption = "Edit Section"
+        btnRemoveSection.Caption = "– Remove Section"
+        btnCancel.Caption = "Close Editor"
         Exit Sub
-
     End If
 
     If mEditingSectionIdx > 0 Then
-
         mEditingSectionIdx = 0
         txtSectionName.Visible = False
         txtSectionName.Text = ""
-        btnEditSection.Caption = "Edit"
+        btnEditSection.Caption = "Edit Section"
         btnAddSection.Caption = "+ Add Section"
-        btnRemoveSection.Caption = "– Remove"
+        btnRemoveSection.Caption = "– Remove Section"
+        btnCancel.Caption = "Close Editor"
         Exit Sub
-
     End If
 
     If mEditingItemIdx > 0 Then
-        ExitItemEditMode
+        CancelItemEditMode
         RefreshItemsDisplay
         Exit Sub
     End If
 
     If mEditingSubIdx >= 0 Then
-        ExitSubItemEditMode
-        RefreshSubItems
+        CancelSubItemEditMode        ' <-- was incorrectly calling CancelItemEditMode
         Exit Sub
     End If
 
     If mEditingRowIdx > 0 Then
-
-        mEditingRowIdx = 0
-        btnEditRow.Caption = "Edit"
-        btnAddRow.Caption = "+ Add"
-        btnRemoveRow.Caption = "– Remove"
-
-        If mSecTypes(mCurrentSection) = TYPE_TABLE Then
-            ClearTableRowFields
-            RefreshRowEditorLabels
-        Else
-            ExitRowEditMode
-        End If
-
+        CancelRowEditMode
         Exit Sub
-
     End If
 
-    ' Nothing is mid-edit anywhere - normal close behavior
     If ConfirmDiscard() Then
         Unload Me
     End If
@@ -3894,5 +4340,32 @@ Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
 
 ErrHandler:
     HandleFormError "UserForm_QueryClose"
+
+End Sub
+
+Private Sub CancelAnyActiveEditMode()
+
+    On Error GoTo ErrHandler
+
+    If mEditingSubIdx >= 0 Then
+        CancelSubItemEditMode
+        Exit Sub
+    End If
+
+    If mEditingItemIdx > 0 Then
+        CancelItemEditMode
+        RefreshItemsDisplay
+        Exit Sub
+    End If
+
+    If mEditingRowIdx > 0 Then
+        CancelRowEditMode
+        Exit Sub
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "CancelAnyActiveEditMode"
 
 End Sub
