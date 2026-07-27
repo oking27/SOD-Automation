@@ -214,12 +214,13 @@ Private Sub InitSections()
     mSecTypes(1) = TYPE_PLAIN
     mSecTypes(2) = TYPE_GROUP
     mSecTypes(3) = TYPE_PLAIN
-    mSecTypes(4) = TYPE_DICTIONARY
-    mSecTypes(5) = TYPE_LIST
+    mSecTypes(4) = TYPE_PLAIN
+    mSecTypes(5) = TYPE_DICTIONARY
     mSecTypes(6) = TYPE_LIST
     mSecTypes(7) = TYPE_LIST
     mSecTypes(8) = TYPE_LIST
-    mSecTypes(9) = TYPE_RESOURCES
+    mSecTypes(9) = TYPE_LIST
+    mSecTypes(10) = TYPE_RESOURCES
 
     Dim i As Long
     For i = 1 To mSecCount
@@ -524,7 +525,7 @@ Private Sub UpdateSectionButtons()
     isBuiltIn = IsBuiltInSectionName(mSecNames(secIdx))
 
     btnRemoveSection.Enabled = Not isBuiltIn
-    btnEditSection.Enabled = True   ' rename is still allowed, with a warning
+    btnEditSection.Enabled = Not isBuiltIn
 
     Exit Sub
 
@@ -1149,6 +1150,9 @@ Private Sub ShowListSection(ByVal idx As Long)
             UpdateSubItemsLabel
             UpdateSubItemControls
             RefreshSubItems
+        Else
+            UpdateSubItemsLabel     ' resets label to "Sub-items:" default
+            UpdateSubItemControls   ' correctly grays out txtSubItem
         End If
 
     Else

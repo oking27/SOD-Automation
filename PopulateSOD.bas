@@ -243,6 +243,12 @@ ErrHandler:
 
 End Sub
 
+Private Function GetLogoPath() As String
+    On Error Resume Next
+    GetLogoPath = Trim(ThisWorkbook.Names("SOD_LogoPath").RefersToRange.Value)
+    On Error GoTo 0
+End Function
+
 Private Function RenderSpecialSection( _
     ByVal wdDoc As Object, _
     ByVal tbl As ListObject, _
@@ -912,21 +918,19 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
     Set hdr = sec.headers(wdHeaderFooterFirstPage)
     Set rng = hdr.Range
     rng.Text = ""
-
+    
     If LOGO_PATH <> "" And Dir(LOGO_PATH) <> "" Then
-
         Set logoShape = hdr.Range.InlineShapes.AddPicture( _
             fileName:=LOGO_PATH, _
             LinkToFile:=False, _
             SaveWithDocument:=True, _
             Range:=hdr.Range)
-
         logoShape.Width = wdDoc.Application.InchesToPoints(LOGO_WIDTH_FIRST_IN)
         logoShape.Height = wdDoc.Application.InchesToPoints(LOGO_HEIGHT_FIRST_IN)
         logoShape.LockAspectRatio = False
-
     End If
-
+    
+    
     ' Tagline always renders, on its own line after the logo (or alone if no logo)
     hdr.Range.InsertAfter vbCr & HEADER_TEXT
 
@@ -965,30 +969,14 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
 
     tbl.PreferredWidthType = 2
     tbl.PreferredWidth = 100
-    tbl.Columns(1).SetWidth usableWidth * 0.75, 0
-    tbl.Columns(2).SetWidth usableWidth * 0.25, 0
+    tbl.Columns(1).SetWidth usableWidth * 0.65, 0
+    tbl.Columns(2).SetWidth usableWidth * 0.35, 0
 
     With tbl.cell(1, 1).Range
         .Text = "Group: " & GroupVal
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 10
-        .ParagraphFormat.Alignment = wdAlignParagraphLeft
-    End With
-
-    With tbl.cell(2, 2).Range
-        .Text = "Page 1"
-        .Font.name = "Lato"
-        .Font.Color = GREG_GRAY
-        .Font.Size = 10
-        .ParagraphFormat.Alignment = wdAlignParagraphRight
-    End With
-
-    With tbl.cell(2, 1).Range
-        .Text = DocTitle 'Later might be Process Number
-        .Font.name = "Lato"
-        .Font.Color = GREG_GRAY
-        .Font.Size = 10
+        .Font.Size = 11
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -996,7 +984,23 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
         .Text = "Updated: " & todayStr
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 10
+        .Font.Size = 11
+        .ParagraphFormat.Alignment = wdAlignParagraphRight
+    End With
+
+    With tbl.cell(2, 1).Range
+        .Text = DocTitle
+        .Font.name = "Lato"
+        .Font.Color = GREG_GRAY
+        .Font.Size = 11
+        .ParagraphFormat.Alignment = wdAlignParagraphLeft
+    End With
+
+    With tbl.cell(2, 2).Range
+        .Text = "Page 1"
+        .Font.name = "Lato"
+        .Font.Color = GREG_GRAY
+        .Font.Size = 11
         .ParagraphFormat.Alignment = wdAlignParagraphRight
     End With
 
@@ -1006,19 +1010,16 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
     Set hdr = sec.headers(wdHeaderFooterPrimary)
     Set rng = hdr.Range
     rng.Text = ""
-
+    
     If LOGO_PATH <> "" And Dir(LOGO_PATH) <> "" Then
-
         Set logoShape = hdr.Range.InlineShapes.AddPicture( _
             fileName:=LOGO_PATH, _
             LinkToFile:=False, _
             SaveWithDocument:=True, _
             Range:=hdr.Range)
-
         logoShape.Width = wdDoc.Application.InchesToPoints(LOGO_WIDTH_OTHER_IN)
         logoShape.Height = wdDoc.Application.InchesToPoints(LOGO_HEIGHT_OTHER_IN)
         logoShape.LockAspectRatio = False
-
     End If
 
     With hdr.Range.ParagraphFormat
@@ -1051,18 +1052,18 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
         .Text = DocTitle
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 10
+        .Font.Size = 11
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
     Set rightRng = tbl.cell(1, 2).Range
-    rightRng.Collapse 1   ' wdCollapseStart
+    rightRng.Collapse 1
     rightRng.InsertAfter "Page "
     rightRng.Collapse 0
     rightRng.Fields.Add rightRng, wdFieldPage
 
     tbl.cell(1, 2).Range.Font.name = "Lato"
-    tbl.cell(1, 2).Range.Font.Size = 10
+    tbl.cell(1, 2).Range.Font.Size = 11
     tbl.cell(1, 2).Range.Font.Color = GREG_GRAY
     tbl.cell(1, 2).Range.ParagraphFormat.Alignment = wdAlignParagraphRight
 
@@ -1344,23 +1345,23 @@ Private Function GetLastBulletColumn(ByVal tbl As ListObject, ByVal colNum As Lo
     GetLastBulletColumn = c - 1
 End Function
 
-Private Function IsTableColumn(ByVal txt As String) As Boolean
+Public Function IsTableColumn(ByVal txt As String) As Boolean
     txt = Trim(txt)
     If InStr(txt, " ") > 0 Then Exit Function
     IsTableColumn = (LCase(Left(txt, 5)) = "table")
 End Function
 
-Private Function IsBulletColumn(ByVal txt As String) As Boolean
+Public Function IsBulletColumn(ByVal txt As String) As Boolean
     txt = Trim(txt)
     If InStr(txt, " ") > 0 Then Exit Function
     IsBulletColumn = (LCase(Left(txt, 6)) = "bullet")
 End Function
 
-Private Function IsTitleColumn(ByVal txt As String) As Boolean
+Public Function IsTitleColumn(ByVal txt As String) As Boolean
     IsTitleColumn = (LCase(Trim(txt)) = "title")
 End Function
 
-Private Function IsMetaColumn(ByVal txt As String) As Boolean
+Public Function IsMetaColumn(ByVal txt As String) As Boolean
     Select Case LCase(Trim(txt))
         Case "title", "group"
             IsMetaColumn = True
@@ -1382,3 +1383,6 @@ Private Function GetDocumentTitle(ByVal tbl As ListObject, ByVal TitleCol As Lon
 
 End Function
 
+Public Sub OpenSODEditor()
+    frmSOD.Show
+End Sub
