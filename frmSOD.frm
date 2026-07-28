@@ -1,10 +1,10 @@
 VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
    Caption         =   "SOD Editor"
-   ClientHeight    =   9142.001
+   ClientHeight    =   9156.001
    ClientLeft      =   273
    ClientTop       =   973
-   ClientWidth     =   11039
+   ClientWidth     =   11025
    OleObjectBlob   =   "frmSOD.frx":0000
    StartUpPosition =   2  'CenterScreen
 End
@@ -123,7 +123,6 @@ Private Sub Workbook_Open()
         MsgBox "You're viewing the master copy of this file." & vbCrLf & vbCrLf & _
                "Please download your own copy before making changes - edits here won't be saved back correctly.", _
                vbExclamation, "Master File - Read Only"
-
     End If
 
 End Sub
@@ -169,7 +168,6 @@ Private Sub UserForm_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift
     ' Ctrl+Shift+D to toggle Developer Mode button visibility
     If KeyCode = 68 And Shift = 3 Then  ' 68 = D key, 3 = Ctrl+Shift
         btnDevMode.Visible = Not btnDevMode.Visible
-        
     End If
     
 End Sub
@@ -178,7 +176,6 @@ Private Sub DebugLog(ByVal message As String)
 
     If mDeveloperMode Then
         Debug.Print "[DEV] " & Now & ": " & message
-        
     End If
     
 End Sub
@@ -193,49 +190,59 @@ End Sub
 
 Private Sub txtResCol1_Change()
     On Error GoTo ErrHandler
+    
     UpdateResourcesButtonState
     Exit Sub
+    
 ErrHandler:
     HandleFormError "txtResCol1_Change"
 End Sub
 
 Private Sub txtResCol2_Change()
     On Error GoTo ErrHandler
+    
     UpdateResourcesButtonState
     Exit Sub
+    
 ErrHandler:
     HandleFormError "txtResCol2_Change"
 End Sub
 
 Private Sub txtResCol3_Change()
     On Error GoTo ErrHandler
+    
     UpdateResourcesButtonState
     Exit Sub
+    
 ErrHandler:
     HandleFormError "txtResCol3_Change"
 End Sub
 
 Private Sub txtDictCol1_Change()
     On Error GoTo ErrHandler
+    
     UpdateDictionaryButtonState
     Exit Sub
+    
 ErrHandler:
     HandleFormError "txtDictCol1_Change"
 End Sub
 
 Private Sub txtDictCol2_Change()
     On Error GoTo ErrHandler
+    
     UpdateDictionaryButtonState
     Exit Sub
+    
 ErrHandler:
     HandleFormError "txtDictCol2_Change"
 End Sub
 
 Private Sub UpdateResourcesButtonState()
-    
     On Error GoTo ErrHandler
     
     If mSecTypes(mCurrentSection) <> TYPE_RESOURCES Then Exit Sub
+    
     If mEditingRowIdx > 0 Then Exit Sub  ' Don't change during edit mode
     
     ' Check if ANY field has content
@@ -258,6 +265,7 @@ Private Sub UpdateDictionaryButtonState()
     On Error GoTo ErrHandler
     
     If mSecTypes(mCurrentSection) <> TYPE_DICTIONARY Then Exit Sub
+    
     If mEditingRowIdx > 0 Then Exit Sub  ' Don't change during edit mode
     
     ' Check if ANY field has content
@@ -298,12 +306,14 @@ Private Sub UserForm_Initialize()
     Set ws = ActiveSheet
 
     If ws.ListObjects.count > 0 Then
+    
         If ws.ListObjects(1).ListRows.count > 0 Then
             mSecCount = 0
             LoadFromSheet
         Else
             InitSections
         End If
+        
     Else
         InitSections
     End If
@@ -330,16 +340,16 @@ ErrHandler:
 
 End Sub
 
-Private Sub fraRowEditor_Change()
-    On Error GoTo ErrHandler
-    
-    ' Any textbox in the row editor changed, update button state
-    UpdateRowButtonsBasedOnContent
-    
-    Exit Sub
-ErrHandler:
-    HandleFormError "fraRowEditor_Change"
-End Sub
+'Private Sub fraRowEditor_Change()
+'    On Error GoTo ErrHandler
+'
+'    ' Any textbox in the row editor changed, update button state
+'    UpdateRowButtonsBasedOnContent
+'
+'    Exit Sub
+'ErrHandler:
+'    HandleFormError "fraRowEditor_Change"
+'End Sub
 
 Private Sub UpdateRowButtonsBasedOnContent()
     
@@ -352,7 +362,6 @@ Private Sub UpdateRowButtonsBasedOnContent()
     End If
     
     If mEditingRowIdx > 0 Then Exit Sub  ' Don't change buttons during edit mode
-    
     ' Check if ANY column has content
     Dim hasContent As Boolean
     hasContent = False
@@ -368,11 +377,14 @@ Private Sub UpdateRowButtonsBasedOnContent()
         On Error GoTo ErrHandler
         
         If Not txt Is Nothing Then
+        
             If Len(Trim(txt.Text)) > 0 Then
                 hasContent = True
                 Exit For
             End If
+            
         End If
+        
     Next i
     
     btnAddRow.Enabled = hasContent
@@ -437,7 +449,6 @@ End Sub
 Private Function GetSectionHelpText(ByVal secName As String, ByVal secType As String) As String
 
     Select Case LCase(Trim(secName))
-
         Case LCase(SEC_TITLE)
             GetSectionHelpText = "The name of this Standard Operating Document. Keep it short and specific."
 
@@ -489,9 +500,10 @@ Private Sub UpdateFormCaption()
     On Error GoTo ErrHandler
 
     Dim titleSecIdx As Long
-    titleSecIdx = FindSection(SEC_TITLE)
-
     Dim titleText As String
+    
+    titleSecIdx = FindSection(SEC_TITLE)
+       
     If titleSecIdx > 0 Then
         titleText = Trim(mSecData(titleSecIdx))
     End If
@@ -513,7 +525,6 @@ Private Sub PopulateGroupDropdown()
     On Error GoTo ErrHandler
 
     cboGroup.Clear
-
     ' TODO: replace with your real Group options
     cboGroup.AddItem "Group A"
     cboGroup.AddItem "Group B"
@@ -521,6 +532,7 @@ Private Sub PopulateGroupDropdown()
 
     Dim groupIdx As Long
     groupIdx = FindSection(SEC_GROUP)
+    
     If groupIdx > 0 Then
         cboGroup.Value = mSecData(groupIdx)
     End If
@@ -533,9 +545,7 @@ ErrHandler:
 End Sub
 
 Public Sub OpenSODEditor()
-
     frmSOD.Show
-    
 End Sub
 
 '====================================================
@@ -723,11 +733,13 @@ Private Sub UpdateSubItemReorderButtonStates()
     Dim parts() As String
     parts = Split(mSecItems(mCurrentSection)(lstItems.ListIndex + 1), "|")
     Dim subs() As String
+    
     If UBound(parts) < 1 Then
         btnAddSubItem.Enabled = False
         btnRemoveSubItem.Enabled = False
         Exit Sub
     End If
+    
     subs = Split(parts(1), "~")
     
     ' Disable "Move Up" if first sub-item
@@ -868,6 +880,7 @@ Private Sub lstSections_Click()
     On Error GoTo ErrHandler
 
     If mLoading Then Exit Sub
+    
     If lstSections.ListIndex < 0 Then Exit Sub
 
     CancelAnyActiveEditMode
@@ -941,7 +954,6 @@ End Function
 Private Function IsBuiltInSubItemSection(ByVal name As String) As Boolean
     ' Built-in sections that always have sub-items - checkbox never shown
     Select Case LCase(Trim(name))
-    
         Case LCase(SEC_ROLES), LCase(SEC_STEPS), LCase(SEC_RESOURCES)
             IsBuiltInSubItemSection = True
     End Select
@@ -952,7 +964,6 @@ Private Function IsBuiltInListSection(ByVal name As String) As Boolean
     ' Built-in sections that are lists but never have sub-items -
     ' checkbox never shown, always unchecked
     Select Case LCase(Trim(name))
-    
         Case LCase(SEC_OBJECTIVES), LCase(SEC_KPIS)
             IsBuiltInListSection = True
     End Select
@@ -993,6 +1004,7 @@ End Sub
 Private Sub RemoveSectionAt(ByVal secIdx As Long)
 
     Dim i As Long
+    
     For i = secIdx To mSecCount - 1
         mSecNames(i) = mSecNames(i + 1)
         mSecTypes(i) = mSecTypes(i + 1)
@@ -1032,7 +1044,6 @@ Private Sub btnAddSection_Click()
     End If
 
     If mEditingSectionIdx > 0 Then
-
         ' EDIT MODE: this button is "Move Up"
         If mEditingSectionIdx <= 1 Then Exit Sub
 
@@ -1042,9 +1053,10 @@ Private Sub btnAddSection_Click()
 
         RefreshSectionList
         lstSections.ListIndex = mEditingSectionIdx - 1
+        mCurrentSection = mEditingSectionIdx
+        ShowSection mCurrentSection
 
         Exit Sub
-
     End If
 
     ' Enter "naming a new section" mode
@@ -1092,23 +1104,6 @@ Private Sub btnEditSection_Click()
         Dim currentName As String
         currentName = mSecNames(mEditingSectionIdx)
 
-        If IsBuiltInSectionName(mSecNames(secIdx)) Then
-            ' Special case: Process Steps CAN be deleted, but with strong confirmation
-            If LCase(Trim(mSecNames(secIdx))) = LCase(SEC_STEPS) Then
-                Dim resp As VbMsgBoxResult
-                resp = MsgBox("Delete '" & mSecNames(secIdx) & "'?" & vbCrLf & vbCrLf & _
-                              "This built-in section contains important workflow steps. " & _
-                              "This action cannot be undone. Are you SURE?", _
-                              vbYesNo + vbExclamation, "Delete Process Steps?")
-                If resp = vbNo Then Exit Sub
-                ' If they click Yes, continue with deletion
-            ElseIf Not mDeveloperMode Then
-                ' Other built-in sections cannot be deleted (unless dev mode)
-                MsgBox "'" & mSecNames(secIdx) & "' is a built-in section and cannot be removed.", vbExclamation
-                Exit Sub
-            End If
-        End If
-
         PushUndo
         mSecNames(mEditingSectionIdx) = newName
 
@@ -1129,7 +1124,6 @@ Private Sub btnEditSection_Click()
         If savedIdx = mCurrentSection Then
             lblSectionTitle.Caption = newName
         End If
-
     Else
         ' ENTER rename/reorder mode
         Dim selIdx As Long
@@ -1156,7 +1150,6 @@ Private Sub btnEditSection_Click()
         btnAddSection.Enabled = True
         btnEditSection.Enabled = True
         btnRemoveSection.Enabled = True
-
     End If
 
     Exit Sub
@@ -1172,7 +1165,6 @@ Private Sub btnRemoveSection_Click()
     If mAddingSection Then
         CreateNewSection TYPE_TABLE
         Exit Sub
-        
     End If
 
     If mEditingSectionIdx > 0 Then
@@ -1187,7 +1179,6 @@ Private Sub btnRemoveSection_Click()
         lstSections.ListIndex = mEditingSectionIdx - 1
 
         Exit Sub
-
     End If
 
     Dim selIdx As Long
@@ -1218,12 +1209,13 @@ Private Sub btnRemoveSection_Click()
     If resp = vbNo Then Exit Sub
 
     RemoveSectionAt secIdx
-
     RefreshSectionList
 
     Dim newSel As Long
     newSel = secIdx - 1
+    
     If newSel < 0 Then newSel = 0
+    
     If newSel > mSecCount - 1 Then newSel = mSecCount - 1
 
     lstSections.ListIndex = newSel
@@ -1295,11 +1287,10 @@ Private Sub ShowSection(ByVal idx As Long)
 
     If idx < 1 Or idx > mSecCount Then Exit Sub
 
-    mLoading = True
-
     ' Reset every edit/add mode and button caption before showing
     ' whatever section is being switched to - prevents a half-finished
     ' edit in one section from leaking into another
+    mLoading = True
     mEditingItemIdx = 0
     mEditingSubIdx = -1
     mEditingRowIdx = 0
@@ -1347,7 +1338,6 @@ Private Sub ShowSection(ByVal idx As Long)
     HideAllControls
 
     Select Case mSecTypes(idx)
-
         Case TYPE_PLAIN
             ShowPlainSection idx
 
@@ -1450,6 +1440,7 @@ Private Sub txtContent_Change()
     On Error GoTo ErrHandler
 
     If mLoading Then Exit Sub
+    
     If mCurrentSection = FindSection(SEC_TITLE) Then
         Me.Caption = IIf(Trim(txtContent.Text) <> "", "SOD Editor: " & Trim(txtContent.Text), "SOD Editor")
     End If
@@ -1486,14 +1477,17 @@ Private Sub ShowListSection(ByVal idx As Long)
     lblSubItems.Caption = "Sub-items:"
 
     Dim i As Long
+    
     For i = 1 To mSecItems(idx).count
         Dim displayVal As String
+        
         If mSecHasSubItems(idx) Then
             displayVal = Split(mSecItems(idx)(i), "|")(0)
         Else
             displayVal = mSecItems(idx)(i)
             If Len(displayVal) > 100 Then displayVal = Left(displayVal, 97) & "..."
         End If
+        
         lstItems.AddItem displayVal
     Next i
 
@@ -1525,11 +1519,13 @@ Private Sub ShowListSection(ByVal idx As Long)
         chkSubItems.ControlTipText = "DEV: Unlocked for testing"
     Else
         chkSubItems.Enabled = Not (isBuiltInWithSubs Or isBuiltInWithoutSubs)
+        
         If Not chkSubItems.Enabled Then
             chkSubItems.ControlTipText = "Cannot change - this is a built-in section"
         Else
             chkSubItems.ControlTipText = "Check if items should have sub-items"
         End If
+        
     End If
 
     If Not chkSubItems.Enabled Then
@@ -1549,7 +1545,6 @@ Private Sub ShowListSection(ByVal idx As Long)
     txtSubItem.Visible = showSubs
 
     If showSubs Then
-
         lstSubItems.Clear
         txtSubItem.Text = ""
 
@@ -1562,7 +1557,6 @@ Private Sub ShowListSection(ByVal idx As Long)
             UpdateSubItemsLabel     ' resets label to "Sub-items:" default
             UpdateSubItemControls   ' correctly grays out txtSubItem
         End If
-
     Else
         ' Defensive reset: controls are invisible, but keep enabled
         ' state and contents clean rather than leaving stale state
@@ -1572,13 +1566,11 @@ Private Sub ShowListSection(ByVal idx As Long)
         btnAddSubItem.Enabled = False
         btnEditSubItem.Enabled = False
         btnRemoveSubItem.Enabled = False
-
     End If
 
     UpdateItemControls
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus
-
     Exit Sub
 
 ErrHandler:
@@ -1590,13 +1582,13 @@ Private Sub chkSubItems_Click()
     On Error GoTo ErrHandler
 
     If mLoading Then Exit Sub
+    
     If mSecTypes(mCurrentSection) <> TYPE_LIST Then Exit Sub
 
     If chkSubItems.Value Then
         ' Switching ON: nothing needs to change about existing data -
         ' plain items just gain the *option* of having subs appended
         mSecHasSubItems(mCurrentSection) = True
-
     Else
         ' Switching OFF is destructive - warn if any item actually
         ' has sub-item data that would be discarded
@@ -1604,6 +1596,7 @@ Private Sub chkSubItems_Click()
         hasAnySubs = False
 
         Dim k As Long
+        
         For k = 1 To mSecItems(mCurrentSection).count
             If InStr(mSecItems(mCurrentSection)(k), "|") > 0 Then
                 hasAnySubs = True
@@ -1615,6 +1608,7 @@ Private Sub chkSubItems_Click()
             Dim resp As VbMsgBoxResult
             resp = MsgBox("Turning off sub-items will permanently remove all sub-item data for this section." & vbCrLf & vbCrLf & _
                           "Continue?", vbYesNo + vbExclamation, "Remove Sub-items")
+            
             If resp = vbNo Then
                 mLoading = True
                 chkSubItems.Value = True
@@ -1631,14 +1625,13 @@ Private Sub chkSubItems_Click()
             parts = Split(mSecItems(mCurrentSection)(j), "|")
             newCol.Add parts(0)
         Next j
+        
         Set mSecItems(mCurrentSection) = newCol
 
         mSecHasSubItems(mCurrentSection) = False
-
     End If
 
     ShowListSection mCurrentSection
-
     Exit Sub
 
 ErrHandler:
@@ -1669,7 +1662,6 @@ Private Sub UpdateSubItemsLabel()
     mainVal = Split(mSecItems(mCurrentSection)(itemIdx), "|")(0)
 
     lblSubItems.Caption = mainVal & ":"
-
     Exit Sub
 
 ErrHandler:
@@ -1684,6 +1676,7 @@ Private Sub RefreshSubItems()
 
     Dim selIdx As Long
     selIdx = lstItems.ListIndex
+    
     If selIdx < 0 Then
         UpdateSubItemControls
         Exit Sub
@@ -1701,33 +1694,31 @@ Private Sub RefreshSubItems()
     entry = mSecItems(mCurrentSection)(itemIdx)
 
     If InStr(entry, "|") > 0 Then
-
         Dim parts() As String
         parts = Split(entry, "|")
 
         If UBound(parts) >= 1 Then
+        
             If Trim(parts(1)) <> "" Then
-
                 Dim subs() As String
                 subs = Split(parts(1), "~")
-
                 Dim i As Long
+                
                 For i = 0 To UBound(subs)
                     Dim txt As String
                     txt = Trim(subs(i))
+                    
                     If txt <> "" Then
+                    
                         If Len(txt) > 90 Then txt = Left(txt, 87) & "..."
                         lstSubItems.AddItem txt
                     End If
                 Next i
-
             End If
         End If
-
     End If
 
     UpdateSubItemControls
-
     Exit Sub
 
 ErrHandler:
@@ -1740,21 +1731,19 @@ Private Sub RefreshItemsDisplay()
 
     lstItems.Clear
     Dim i As Long
+    
     For i = 1 To mSecItems(mCurrentSection).count
+    
         If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then
             lstItems.AddItem Split(mSecItems(mCurrentSection)(i), "|")(0)
-            
         Else
-        
             Dim displayVal As String
             displayVal = mSecItems(mCurrentSection)(i)
             If Len(displayVal) > 100 Then displayVal = Left(displayVal, 97) & "..."
             lstItems.AddItem displayVal
-            
         End If
-        
     Next i
-
+    
     Exit Sub
 
 ErrHandler:
@@ -1782,14 +1771,12 @@ Private Sub UpdateItemControls()
         txtItem.BackColor = &H8000000F
         ' Don't touch button states here - let UpdateItemButtonsBasedOnFocus handle it
         Exit Sub
-        
     End If
 
     ' Normal mode: textbox is enabled with normal color
     txtItem.Enabled = True
     txtItem.BackColor = &H80000005
     ' Don't touch button states here - let UpdateItemButtonsBasedOnFocus handle it
-
     Exit Sub
 
 ErrHandler:
@@ -1827,7 +1814,7 @@ Private Sub UpdateSubItemControls()
     Else
         txtSubItem.BackColor = &H80000005
     End If
-
+    
     Exit Sub
 
 ErrHandler:
@@ -1843,6 +1830,7 @@ Private Sub lstItems_Click()
     On Error GoTo ErrHandler
 
     If mLoading Then Exit Sub
+    
     If lstItems.ListIndex < 0 Then Exit Sub
 
     CancelAnyActiveEditMode
@@ -1873,10 +1861,8 @@ Private Sub lstSubItems_Click()
     If mLoading Then Exit Sub
 
     CancelAnyActiveEditMode
-
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus
-
     Exit Sub
 
 ErrHandler:
@@ -1888,7 +1874,6 @@ Private Sub txtItem_Change()
     On Error GoTo ErrHandler
     
     UpdateItemButtonsBasedOnFocus
-    
     Exit Sub
     
 ErrHandler:
@@ -1900,7 +1885,6 @@ Private Sub txtSubItem_Change()
     On Error GoTo ErrHandler
     
     UpdateSubItemButtonsBasedOnFocus
-    
     Exit Sub
     
 ErrHandler:
@@ -1920,9 +1904,7 @@ Private Sub btnAddItem_Click()
     If mEditingItemIdx > 0 Then
         ' EDIT MODE: Move Up
         ReorderItem mEditingItemIdx, -1, mSecItems(mCurrentSection).count
-  
         RefreshItemsAfterReorder
-
     Else
         ' NORMAL MODE: split pasted text on line breaks so a paste of
         ' multiple lines becomes multiple items in one click
@@ -1931,10 +1913,9 @@ Private Sub btnAddItem_Click()
 
         Dim addedAny As Boolean
         addedAny = False
-
         Dim lineIdx As Long
+        
         For lineIdx = 0 To UBound(rawLines)
-
             Dim cleanLine As String
             cleanLine = Trim(rawLines(lineIdx))
 
@@ -1943,7 +1924,6 @@ Private Sub btnAddItem_Click()
                 lstItems.AddItem cleanLine
                 addedAny = True
             End If
-
         Next lineIdx
 
         If Not addedAny Then
@@ -1952,7 +1932,6 @@ Private Sub btnAddItem_Click()
         End If
 
         txtItem.Text = ""
-
         lstItems.ListIndex = lstItems.ListCount - 1
         UpdateItemControls
 
@@ -1960,7 +1939,6 @@ Private Sub btnAddItem_Click()
             UpdateSubItemsLabel
             RefreshSubItems
         End If
-
     End If
 
     Exit Sub
@@ -1976,11 +1954,8 @@ Private Sub btnRemoveItem_Click()
     If mEditingItemIdx > 0 Then
         ' EDIT MODE: Move Down
         ReorderItem mEditingItemIdx, 1, mSecItems(mCurrentSection).count
-
         RefreshItemsAfterReorder
-
     Else
-
         Dim selIdx As Long
         selIdx = lstItems.ListIndex
 
@@ -1990,21 +1965,22 @@ Private Sub btnRemoveItem_Click()
         End If
 
         PushUndo
-
         Dim i As Long
         Dim newCol As New Collection
+        
         For i = 1 To mSecItems(mCurrentSection).count
+        
             If i <> selIdx + 1 Then
                 newCol.Add mSecItems(mCurrentSection)(i)
             End If
         Next i
+        
         Set mSecItems(mCurrentSection) = newCol
 
         lstItems.RemoveItem selIdx
         lstSubItems.Clear
         UpdateSubItemControls
         UpdateItemControls
-
     End If
 
     Exit Sub
@@ -2018,7 +1994,6 @@ Private Sub btnEditItem_Click()
     On Error GoTo ErrHandler
 
     If mEditingItemIdx > 0 Then
-
         ' CONFIRM
         Dim newItem As String
         newItem = Trim(txtItem.Text)
@@ -2029,11 +2004,13 @@ Private Sub btnEditItem_Click()
         End If
 
         PushUndo
-
         Dim newCol As New Collection
         Dim i As Long
+        
         For i = 1 To mSecItems(mCurrentSection).count
+        
             If i = mEditingItemIdx Then
+            
                 If mSecTypes(mCurrentSection) = TYPE_LIST And InStr(mSecItems(mCurrentSection)(i), "|") > 0 Then
                     Dim parts() As String
                     parts = Split(mSecItems(mCurrentSection)(i), "|")
@@ -2046,19 +2023,17 @@ Private Sub btnEditItem_Click()
                 newCol.Add mSecItems(mCurrentSection)(i)
             End If
         Next i
+        
         Set mSecItems(mCurrentSection) = newCol
 
         Dim savedIdx As Long
         savedIdx = mEditingItemIdx
-
         ExitItemEditMode
-
         RefreshItemsDisplay
         lstItems.ListIndex = savedIdx - 1
+        
         If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then RefreshSubItems
-
     Else
-
         Dim selIdx As Long
         selIdx = lstItems.ListIndex
 
@@ -2069,8 +2044,8 @@ Private Sub btnEditItem_Click()
 
         Dim itemIdx As Long
         itemIdx = selIdx + 1
-
         Dim current As String
+        
         If mSecTypes(mCurrentSection) = TYPE_LIST And InStr(mSecItems(mCurrentSection)(itemIdx), "|") > 0 Then
             current = Split(mSecItems(mCurrentSection)(itemIdx), "|")(0)
         Else
