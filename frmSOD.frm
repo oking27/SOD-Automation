@@ -113,6 +113,18 @@ Private Sub HandleFormError(ByVal procName As String)
            vbExclamation, "SOD Form - Error"
 
 End Sub
+Private Sub Workbook_Open()
+
+    If InStr(1, ThisWorkbook.path, "SharePoint Site Name", vbTextCompare) > 0 Or _
+       InStr(1, ThisWorkbook.FullName, "https://", vbTextCompare) > 0 Then
+
+        MsgBox "You're viewing the master copy of this file." & vbCrLf & vbCrLf & _
+               "Please download your own copy before making changes - edits here won't be saved back correctly.", _
+               vbExclamation, "Master File - Read Only"
+
+    End If
+
+End Sub
 
 Private Sub fraContent_Click()
 
@@ -128,6 +140,16 @@ End Sub
 
 Private Sub lblSubItems_Click()
 
+End Sub
+
+Private Sub ClearFormBackground()
+    Me.Picture = LoadPicture("")
+End Sub
+
+Private Sub TestAddButton()
+    mItemTextHasFocus = True
+    UpdateItemButtonsBasedOnFocus
+    MsgBox "btnAddItem.Enabled: " & btnAddItem.Enabled
 End Sub
 
 '====================================================
@@ -480,6 +502,200 @@ Private Sub RefreshSectionList()
 
 ErrHandler:
     HandleFormError "RefreshSectionList"
+
+End Sub
+
+'====================================================
+' Update button states during edit mode based on item position
+'====================================================
+
+Private Sub UpdateItemReorderButtonStates()
+    
+    On Error GoTo ErrHandler
+    
+    btnAddItem.Enabled = (Len(Trim(txtItem.Text)) > 0)
+    
+    ' During edit mode:
+    ' - btnAddItem is labeled "Move Up" ? disable if first item
+    ' - btnRemoveItem is labeled "Move Down" ? disable if last item
+    
+    If mEditingItemIdx <= 0 Then
+        ' Not in edit mode - shouldn't happen, but be safe
+        btnAddItem.Enabled = True
+        btnRemoveItem.Enabled = True
+        Exit Sub
+    End If
+    
+    Dim itemCount As Long
+    itemCount = mSecItems(mCurrentSection).count
+    
+    ' Disable "Move Up" if on first item
+    btnAddItem.Enabled = (mEditingItemIdx > 1)
+    
+    ' Disable "Move Down" if on last item
+    btnRemoveItem.Enabled = (mEditingItemIdx < itemCount)
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateItemReorderButtonStates"
+
+End Sub
+
+Private Sub UpdateSubItemReorderButtonStates()
+    
+    On Error GoTo ErrHandler
+    
+    If mEditingSubIdx < 0 Then
+        btnAddSubItem.Enabled = True
+        btnRemoveSubItem.Enabled = True
+        Exit Sub
+    End If
+    
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(lstItems.ListIndex + 1), "|")
+    Dim subs() As String
+    If UBound(parts) < 1 Then
+        btnAddSubItem.Enabled = False
+        btnRemoveSubItem.Enabled = False
+        Exit Sub
+    End If
+    subs = Split(parts(1), "~")
+    
+    ' Disable "Move Up" if first sub-item
+    btnAddSubItem.Enabled = (mEditingSubIdx > 0)
+    
+    ' Disable "Move Down" if last sub-item
+    btnRemoveSubItem.Enabled = (mEditingSubIdx < UBound(subs))
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateSubItemReorderButtonStates"
+
+End Sub
+
+Private Sub UpdateRowReorderButtonStates()
+    
+    On Error GoTo ErrHandler
+    
+    If mEditingRowIdx <= 0 Then
+        btnAddRow.Enabled = True
+        btnRemoveRow.Enabled = True
+        Exit Sub
+    End If
+    
+    Dim rowCount As Long
+    rowCount = mSecItems(mCurrentSection).count
+    
+    btnAddRow.Enabled = (mEditingRowIdx > 1)
+    btnRemoveRow.Enabled = (mEditingRowIdx < rowCount)
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateRowReorderButtonStates"
+
+End Sub
+
+'====================================================
+' HELPER: Update button states based on focus and edit mode
+'====================================================
+
+Private Sub UpdateItemButtonsBasedOnFocus()
+    
+    On Error GoTo ErrHandler
+    
+    ' BLOCK: If SubItem is being edited, disable all item buttons
+    If mEditingSubIdx >= 0 Then
+        btnAddItem.Enabled = False
+        btnEditItem.Enabled = False
+        btnRemoveItem.Enabled = False
+        Exit Sub
+    End If
+    
+    ' EDIT MODE: Position-based enabling
+    If mEditingItemIdx > 0 Then
+        btnAddItem.Enabled = (mEditingItemIdx > 1)
+        btnEditItem.Enabled = True
+        btnRemoveItem.Enabled = (mEditingItemIdx < mSecItems(mCurrentSection).count)
+        Exit Sub
+    End If
+    
+    ' NORMAL MODE: Check if txtItem has content (not just focus)
+    ' If it has content, "+ Add" is enabled
+    btnAddItem.Enabled = (Len(Trim(txtItem.Text)) > 0)
+    
+    ' "Edit" and "– Remove" enabled only if lstItems has selection
+    Dim hasSelection As Boolean
+    hasSelection = (lstItems.ListIndex >= 0)
+    btnEditItem.Enabled = hasSelection
+    btnRemoveItem.Enabled = hasSelection
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateItemButtonsBasedOnFocus"
+
+End Sub
+
+Private Sub UpdateSubItemButtonsBasedOnFocus()
+    
+    On Error GoTo ErrHandler
+    
+    ' BLOCK: If Item is being edited, disable all subitem buttons
+    If mEditingItemIdx > 0 Then
+        btnAddSubItem.Enabled = False
+        btnEditSubItem.Enabled = False
+        btnRemoveSubItem.Enabled = False
+        Exit Sub
+    End If
+    
+    ' BLOCK: If no parent item selected, disable everything
+    If lstItems.ListIndex < 0 Then
+        btnAddSubItem.Enabled = False
+        btnEditSubItem.Enabled = False
+        btnRemoveSubItem.Enabled = False
+        Exit Sub
+    End If
+    
+    ' EDIT MODE: Position-based enabling
+    If mEditingSubIdx >= 0 Then
+        Dim parentIdx As Long
+        parentIdx = lstItems.ListIndex + 1
+        
+        Dim parts() As String
+        parts = Split(mSecItems(mCurrentSection)(parentIdx), "|")
+        
+        If UBound(parts) < 1 Then
+            btnAddSubItem.Enabled = False
+            btnEditSubItem.Enabled = False
+            btnRemoveSubItem.Enabled = False
+            Exit Sub
+        End If
+        
+        Dim subs() As String
+        subs = Split(parts(1), "~")
+        
+        btnAddSubItem.Enabled = (mEditingSubIdx > 0)
+        btnEditSubItem.Enabled = True
+        btnRemoveSubItem.Enabled = (mEditingSubIdx < UBound(subs))
+        Exit Sub
+    End If
+    
+    ' NORMAL MODE: Check if txtSubItem has content
+    btnAddSubItem.Enabled = (Len(Trim(txtSubItem.Text)) > 0)
+    
+    ' "Edit" and "– Remove" enabled only if lstSubItems has selection
+    Dim hasSelection As Boolean
+    hasSelection = (lstSubItems.ListIndex >= 0)
+    btnEditSubItem.Enabled = hasSelection
+    btnRemoveSubItem.Enabled = hasSelection
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateSubItemButtonsBasedOnFocus"
 
 End Sub
 
@@ -1169,6 +1385,8 @@ Private Sub ShowListSection(ByVal idx As Long)
     End If
 
     UpdateItemControls
+    UpdateItemButtonsBasedOnFocus
+    UpdateSubItemButtonsBasedOnFocus
 
     Exit Sub
 
@@ -1363,26 +1581,25 @@ Private Sub UpdateItemControls()
 
     On Error GoTo ErrHandler
 
+    ' This function now only handles:
+    ' - Textbox background color (visual state)
+    ' - Disabling controls when SubItem is editing
+    ' Button enabling/disabling is now handled by UpdateItemButtonsBasedOnFocus()
+
     If mEditingItemIdx > 0 Then Exit Sub   ' don't interfere with edit mode
 
     ' If currently editing a sub-item, lock out ALL item-level controls
     If mEditingSubIdx >= 0 Then
         txtItem.Enabled = False
         txtItem.BackColor = &H8000000F
-        btnAddItem.Enabled = False
-        btnEditItem.Enabled = False
-        btnRemoveItem.Enabled = False
+        ' Don't touch button states here - let UpdateItemButtonsBasedOnFocus handle it
         Exit Sub
     End If
 
-    Dim hasSelection As Boolean
-    hasSelection = (lstItems.ListIndex >= 0)
-
+    ' Normal mode: textbox is enabled with normal color
     txtItem.Enabled = True
     txtItem.BackColor = &H80000005
-    btnAddItem.Enabled = True
-    btnEditItem.Enabled = hasSelection
-    btnRemoveItem.Enabled = hasSelection
+    ' Don't touch button states here - let UpdateItemButtonsBasedOnFocus handle it
 
     Exit Sub
 
@@ -1395,28 +1612,27 @@ Private Sub UpdateSubItemControls()
 
     On Error GoTo ErrHandler
 
+    ' This function now only handles:
+    ' - Textbox background color (visual state)
+    ' - Disabling controls when Item is editing
+    ' Button enabling/disabling is now handled by UpdateSubItemButtonsBasedOnFocus()
+
     If mEditingSubIdx >= 0 Then Exit Sub   ' don't interfere with edit mode
 
     ' If currently editing a parent item, lock out sub-item controls entirely
     If mEditingItemIdx > 0 Then
         txtSubItem.Enabled = False
-        btnAddSubItem.Enabled = False
-        btnEditSubItem.Enabled = False
-        btnRemoveSubItem.Enabled = False
         txtSubItem.BackColor = &H8000000F
+        ' Don't touch button states here - let UpdateSubItemButtonsBasedOnFocus handle it
         Exit Sub
     End If
 
+    ' Normal mode: check if parent is selected
     Dim hasParent As Boolean
-    Dim hasSubSelection As Boolean
-
     hasParent = (lstItems.ListIndex >= 0)
-    hasSubSelection = (lstSubItems.ListIndex >= 0)
 
     txtSubItem.Enabled = hasParent
-    btnAddSubItem.Enabled = hasParent
-    btnEditSubItem.Enabled = hasSubSelection
-    btnRemoveSubItem.Enabled = hasSubSelection
+    ' Don't touch button states here - let UpdateSubItemButtonsBasedOnFocus handle it
 
     If Not hasParent Then
         txtSubItem.BackColor = &H8000000F
@@ -1445,6 +1661,9 @@ Private Sub lstItems_Click()
     CancelAnyActiveEditMode
 
     UpdateItemControls
+    
+    UpdateItemButtonsBasedOnFocus
+    UpdateSubItemButtonsBasedOnFocus
 
     If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then
         lstSubItems.Clear
@@ -1469,13 +1688,30 @@ Private Sub lstSubItems_Click()
 
     CancelAnyActiveEditMode
 
-    UpdateSubItemControls
+    UpdateItemButtonsBasedOnFocus
+    UpdateSubItemButtonsBasedOnFocus
 
     Exit Sub
 
 ErrHandler:
     HandleFormError "lstSubItems_Click"
 
+End Sub
+
+Private Sub txtItem_Change()
+    On Error GoTo ErrHandler
+    UpdateItemButtonsBasedOnFocus
+    Exit Sub
+ErrHandler:
+    HandleFormError "txtItem_Change"
+End Sub
+
+Private Sub txtSubItem_Change()
+    On Error GoTo ErrHandler
+    UpdateSubItemButtonsBasedOnFocus
+    Exit Sub
+ErrHandler:
+    HandleFormError "txtSubItem_Change"
 End Sub
 
 '====================================================
@@ -1487,24 +1723,12 @@ Private Sub btnAddItem_Click()
     On Error GoTo ErrHandler
 
     If mEditingItemIdx > 0 Then
-
-        ' EDIT MODE: this button is "Move Up"
-        If mEditingItemIdx <= 1 Then Exit Sub
-
-        SaveEditedItemTextInPlace
-        PushUndo
-
-        Set mSecItems(mCurrentSection) = _
-            SwapCollectionItems(mSecItems(mCurrentSection), mEditingItemIdx, mEditingItemIdx - 1)
-
-        mEditingItemIdx = mEditingItemIdx - 1
-
-        RefreshItemsDisplay
-        lstItems.ListIndex = mEditingItemIdx - 1
-        txtItem.SetFocus
+        ' EDIT MODE: Move Up
+        ReorderItem mEditingItemIdx, -1, mSecItems(mCurrentSection).count
+  
+        RefreshItemsAfterReorder
 
     Else
-
         ' NORMAL MODE: split pasted text on line breaks so a paste of
         ' multiple lines becomes multiple items in one click
         Dim rawLines() As String
@@ -1556,21 +1780,10 @@ Private Sub btnRemoveItem_Click()
     On Error GoTo ErrHandler
 
     If mEditingItemIdx > 0 Then
+        ' EDIT MODE: Move Down
+        ReorderItem mEditingItemIdx, 1, mSecItems(mCurrentSection).count
 
-        ' EDIT MODE: this button is "Move Down"
-        If mEditingItemIdx >= mSecItems(mCurrentSection).count Then Exit Sub
-
-        SaveEditedItemTextInPlace
-        PushUndo
-
-        Set mSecItems(mCurrentSection) = _
-            SwapCollectionItems(mSecItems(mCurrentSection), mEditingItemIdx, mEditingItemIdx + 1)
-
-        mEditingItemIdx = mEditingItemIdx + 1
-
-        RefreshItemsDisplay
-        lstItems.ListIndex = mEditingItemIdx - 1
-        txtItem.SetFocus
+        RefreshItemsAfterReorder
 
     Else
 
@@ -1684,7 +1897,9 @@ Private Sub btnEditItem_Click()
         btnAddItem.Caption = "Move Up"
         btnRemoveItem.Caption = "Move Down"
         btnCancel.Caption = "Cancel"
-
+        
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
     End If
 
     Exit Sub
@@ -1704,8 +1919,8 @@ Private Sub ExitItemEditMode()
     txtItem.Text = ""
     Set mEditSnapshot = Nothing
 
-    UpdateItemControls
-    UpdateSubItemControls   ' restore sub-item controls
+    UpdateItemButtonsBasedOnFocus
+    UpdateSubItemButtonsBasedOnFocus   ' restore sub-item controls
 
 End Sub
 
@@ -1730,8 +1945,57 @@ Private Sub CancelItemEditMode()
     txtItem.Text = ""
     Set mEditSnapshot = Nothing
 
-    UpdateItemControls
-    UpdateSubItemControls
+    UpdateItemButtonsBasedOnFocus
+    UpdateSubItemButtonsBasedOnFocus
+
+End Sub
+
+
+Private Sub ReorderSubItem(ByRef subIndex As Long, _
+                           ByVal direction As Long, _
+                           ByVal itemIdx As Long)
+    
+    On Error GoTo ErrHandler
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+    Dim subs() As String
+    subs = Split(parts(1), "~")
+
+    If direction = -1 And subIndex <= 0 Then Exit Sub
+    If direction = 1 And subIndex >= UBound(subs) Then Exit Sub
+
+    SaveEditedSubItemTextInPlace itemIdx
+    PushUndo
+
+    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
+    subs = Split(parts(1), "~")
+
+    Dim tmp As String
+    tmp = subs(subIndex)
+    subs(subIndex) = subs(subIndex + direction)
+    subs(subIndex + direction) = tmp
+
+    Dim newStr As String
+    newStr = parts(0) & "|" & Join(subs, "~")
+
+    Dim newCol As New Collection
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If i = itemIdx Then
+            newCol.Add newStr
+        Else
+            newCol.Add mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+    Set mSecItems(mCurrentSection) = newCol
+
+    subIndex = subIndex + direction
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ReorderSubItem"
 
 End Sub
 
@@ -1781,43 +2045,10 @@ Private Sub btnAddSubItem_Click()
     itemIdx = selIdx + 1
 
     If mEditingSubIdx >= 0 Then
-
-        ' EDIT MODE: this button is "Move Up"
-        If mEditingSubIdx <= 0 Then Exit Sub
-
-        SaveEditedSubItemTextInPlace itemIdx
-        PushUndo
-
-        Dim parts() As String
-        parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
-        Dim subs() As String
-        subs = Split(parts(1), "~")
-
-        Dim tmp As String
-        tmp = subs(mEditingSubIdx)
-        subs(mEditingSubIdx) = subs(mEditingSubIdx - 1)
-        subs(mEditingSubIdx - 1) = tmp
-
-        Dim newStr As String
-        newStr = parts(0) & "|" & Join(subs, "~")
-
-        Dim newCol As New Collection
-        Dim i As Long
-        For i = 1 To mSecItems(mCurrentSection).count
-            If i = itemIdx Then
-                newCol.Add newStr
-            Else
-                newCol.Add mSecItems(mCurrentSection)(i)
-            End If
-        Next i
-        Set mSecItems(mCurrentSection) = newCol
-
-        mEditingSubIdx = mEditingSubIdx - 1
-
-        RefreshSubItems
-        lstSubItems.ListIndex = mEditingSubIdx
-        txtSubItem.SetFocus
-
+        ' EDIT MODE: Move Up
+        ReorderSubItem mEditingSubIdx, -1, itemIdx
+        RefreshSubItemsAfterReorder
+        
     Else
 
         ' NORMAL MODE: split pasted text on line breaks, each line
@@ -1912,46 +2143,10 @@ Private Sub btnRemoveSubItem_Click()
     itemIdx = parentIdx + 1
 
     If mEditingSubIdx >= 0 Then
-
-        ' EDIT MODE: this button is "Move Down"
-        Dim parts() As String
-        parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
-        Dim subs() As String
-        subs = Split(parts(1), "~")
-
-        If mEditingSubIdx >= UBound(subs) Then Exit Sub
-
-        SaveEditedSubItemTextInPlace itemIdx
-        PushUndo
-
-        parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
-        subs = Split(parts(1), "~")
-
-        Dim tmp As String
-        tmp = subs(mEditingSubIdx)
-        subs(mEditingSubIdx) = subs(mEditingSubIdx + 1)
-        subs(mEditingSubIdx + 1) = tmp
-
-        Dim newStr As String
-        newStr = parts(0) & "|" & Join(subs, "~")
-
-        Dim newCol As New Collection
-        Dim i As Long
-        For i = 1 To mSecItems(mCurrentSection).count
-            If i = itemIdx Then
-                newCol.Add newStr
-            Else
-                newCol.Add mSecItems(mCurrentSection)(i)
-            End If
-        Next i
-        Set mSecItems(mCurrentSection) = newCol
-
-        mEditingSubIdx = mEditingSubIdx + 1
-
-        RefreshSubItems
-        lstSubItems.ListIndex = mEditingSubIdx
-        txtSubItem.SetFocus
-
+        ' EDIT MODE: Move Up
+        ReorderSubItem mEditingSubIdx, 1, itemIdx
+        RefreshSubItemsAfterReorder
+    
     Else
 
         Dim subIdx As Long
@@ -2112,13 +2307,14 @@ Private Sub btnEditSubItem_Click()
         mSubEditSnapshotItemIdx = lstItems.ListIndex
 
         mEditingSubIdx = subIdx
-        UpdateItemControls      ' gray out item txt and Add btn immediately
-        UpdateSubItemControls
-
+        
         btnEditSubItem.Caption = "Confirm"
         btnAddSubItem.Caption = "Move Up"
         btnRemoveSubItem.Caption = "Move Down"
         btnCancel.Caption = "Cancel"
+        
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
 
     End If
 
@@ -2139,7 +2335,8 @@ Private Sub ExitSubItemEditMode()
     txtSubItem.Text = ""
     Set mSubEditSnapshot = Nothing
 
-    UpdateSubItemControls
+    UpdateItemButtonsBasedOnFocus
+    UpdateSubItemButtonsBasedOnFocus
 
 End Sub
 
@@ -2231,162 +2428,105 @@ Private Function SwapCollectionItems(ByVal col As Collection, _
 
 End Function
 
-Private Sub btnItemUp_Click()
+'====================================================
+' HELPER: Reusable Item Reorder Logic
+'====================================================
 
+Private Sub ReorderItem(ByRef itemIndex As Long, _
+                        ByVal direction As Long, _
+                        ByVal maxCount As Long)
+    
+    ' This function moves an item up (-1) or down (+1) in a collection
+    '
+    ' Parameters:
+    '   itemIndex - the 1-based index of the item to move (gets updated by this function)
+    '   direction - pass -1 to move UP, pass +1 to move DOWN
+    '   maxCount  - the total number of items in the collection
+    '
+    ' Example: ReorderItem mEditingItemIdx, -1, mSecItems(mCurrentSection).count
+    '          This moves the current item UP one position
+    
     On Error GoTo ErrHandler
 
-    Dim selIdx As Long
-    selIdx = lstItems.ListIndex
-    If selIdx <= 0 Then Exit Sub
+    ' Bounds check: can't move up past item 1, can't move down past last item
+    If direction = -1 And itemIndex <= 1 Then Exit Sub
+    If direction = 1 And itemIndex >= maxCount Then Exit Sub
 
+    ' Do the swap
+    SaveEditedItemTextInPlace
     PushUndo
+    
+    Set mSecItems(mCurrentSection) = _
+        SwapCollectionItems(mSecItems(mCurrentSection), itemIndex, itemIndex + direction)
 
-    Dim itemIdx As Long
-    itemIdx = selIdx + 1
-    Set mSecItems(mCurrentSection) = SwapCollectionItems(mSecItems(mCurrentSection), itemIdx, itemIdx - 1)
+    ' Update the index to point to the new location
+    itemIndex = itemIndex + direction
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ReorderItem"
+
+End Sub
+
+Private Sub RefreshItemsAfterReorder()
+    On Error GoTo ErrHandler
 
     RefreshItemsDisplay
-    lstItems.ListIndex = selIdx - 1
-    UpdateSubItemsLabel
-    If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then RefreshSubItems
+    
+    mLoading = True
+    lstItems.ListIndex = mEditingItemIdx - 1
+    mLoading = False
+    
+    UpdateItemButtonsBasedOnFocus  ' ? ADD THIS
+    txtItem.SetFocus
 
     Exit Sub
 
 ErrHandler:
-    HandleFormError "btnItemUp_Click"
+    HandleFormError "RefreshItemsAfterReorder"
 
 End Sub
 
-Private Sub btnItemDown_Click()
-
+Private Sub RefreshSubItemsAfterReorder()
     On Error GoTo ErrHandler
-
-    Dim selIdx As Long
-    selIdx = lstItems.ListIndex
-    If selIdx < 0 Or selIdx >= lstItems.ListCount - 1 Then Exit Sub
-
-    PushUndo
-
-    Dim itemIdx As Long
-    itemIdx = selIdx + 1
-    Set mSecItems(mCurrentSection) = SwapCollectionItems(mSecItems(mCurrentSection), itemIdx, itemIdx + 1)
-
-    RefreshItemsDisplay
-    lstItems.ListIndex = selIdx + 1
-    UpdateSubItemsLabel
-    If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then RefreshSubItems
-
-    Exit Sub
-
-ErrHandler:
-    HandleFormError "btnItemDown_Click"
-
-End Sub
-
-Private Sub btnSubItemUp_Click()
-
-    On Error GoTo ErrHandler
-
-    Dim parentIdx As Long
-    parentIdx = lstItems.ListIndex
-    If parentIdx < 0 Then Exit Sub
-
-    Dim subIdx As Long
-    subIdx = lstSubItems.ListIndex
-    If subIdx <= 0 Then Exit Sub
-
-    PushUndo
-
-    Dim itemIdx As Long
-    itemIdx = parentIdx + 1
-
-    Dim parts() As String
-    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
-    If UBound(parts) < 1 Then Exit Sub
-
-    Dim subs() As String
-    subs = Split(parts(1), "~")
-
-    Dim tmp As String
-    tmp = subs(subIdx)
-    subs(subIdx) = subs(subIdx - 1)
-    subs(subIdx - 1) = tmp
-
-    Dim newStr As String
-    newStr = parts(0) & "|" & Join(subs, "~")
-
-    Dim newCol As New Collection
-    Dim i As Long
-    For i = 1 To mSecItems(mCurrentSection).count
-        If i = itemIdx Then
-            newCol.Add newStr
-        Else
-            newCol.Add mSecItems(mCurrentSection)(i)
-        End If
-    Next i
-    Set mSecItems(mCurrentSection) = newCol
 
     RefreshSubItems
-    lstSubItems.ListIndex = subIdx - 1
+    
+    mLoading = True
+    lstSubItems.ListIndex = mEditingSubIdx
+    mLoading = False
+    
+    UpdateSubItemButtonsBasedOnFocus  ' ? ADD THIS
+    txtSubItem.SetFocus
 
     Exit Sub
 
 ErrHandler:
-    HandleFormError "btnSubItemUp_Click"
+    HandleFormError "RefreshSubItemsAfterReorder"
 
 End Sub
 
-Private Sub btnSubItemDown_Click()
-
+Private Sub RefreshRowsAfterReorder()
     On Error GoTo ErrHandler
 
-    Dim parentIdx As Long
-    parentIdx = lstItems.ListIndex
-    If parentIdx < 0 Then Exit Sub
-
-    Dim subIdx As Long
-    subIdx = lstSubItems.ListIndex
-    If subIdx < 0 Or subIdx >= lstSubItems.ListCount - 1 Then Exit Sub
-
-    PushUndo
-
-    Dim itemIdx As Long
-    itemIdx = parentIdx + 1
-
-    Dim parts() As String
-    parts = Split(mSecItems(mCurrentSection)(itemIdx), "|")
-    If UBound(parts) < 1 Then Exit Sub
-
-    Dim subs() As String
-    subs = Split(parts(1), "~")
-
-    Dim tmp As String
-    tmp = subs(subIdx)
-    subs(subIdx) = subs(subIdx + 1)
-    subs(subIdx + 1) = tmp
-
-    Dim newStr As String
-    newStr = parts(0) & "|" & Join(subs, "~")
-
-    Dim newCol As New Collection
-    Dim i As Long
-    For i = 1 To mSecItems(mCurrentSection).count
-        If i = itemIdx Then
-            newCol.Add newStr
-        Else
-            newCol.Add mSecItems(mCurrentSection)(i)
-        End If
-    Next i
-    Set mSecItems(mCurrentSection) = newCol
-
-    RefreshSubItems
-    lstSubItems.ListIndex = subIdx + 1
+    RefreshRowList mCurrentSection
+    
+    mLoading = True
+    lstRows.ListIndex = mEditingRowIdx - 1
+    mLoading = False
 
     Exit Sub
 
 ErrHandler:
-    HandleFormError "btnSubItemDown_Click"
+    HandleFormError "RefreshRowsAfterReorder"
 
+End Sub
+
+Private Sub SetListIndexWithoutTriggeringClick(ByVal listCtrl As Object, ByVal idx As Long)
+    mLoading = True
+    listCtrl.ListIndex = idx
+    mLoading = False
 End Sub
 
 '====================================================
@@ -2458,6 +2598,7 @@ Private Sub BuildRowEditorFields()
         lbl.Top = topPos
         lbl.Width = 70
         lbl.Height = 20
+        lbl.TextAlign = 3   ' fmTextAlignRight
 
         If mSecHasHeader(mCurrentSection) And mEditingRowIdx = 1 Then
             lbl.Caption = "Header " & (i + 1) & ":"
@@ -3467,7 +3608,8 @@ Private Sub btnEditRow_Click()
             btnAddRow.Caption = "Move Up"
             btnRemoveRow.Caption = "Move Down"
             btnCancel.Caption = "Cancel"
-
+            
+            UpdateItemReorderButtonStates
             RefreshRowEditorLabels
 
         End If
