@@ -153,7 +153,15 @@ ErrHandler:
     HandleFormError "btnDevMode_Click"
 End Sub
 
+Private Sub fraContent_Click()
+
+End Sub
+
 Private Sub fraRowEditor_Click()
+
+End Sub
+
+Private Sub lblSectionTitle_Click()
 
 End Sub
 
@@ -161,19 +169,109 @@ Private Sub UserForm_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift
     ' Ctrl+Shift+D to toggle Developer Mode button visibility
     If KeyCode = 68 And Shift = 3 Then  ' 68 = D key, 3 = Ctrl+Shift
         btnDevMode.Visible = Not btnDevMode.Visible
+        
     End If
+    
 End Sub
 
 Private Sub DebugLog(ByVal message As String)
+
     If mDeveloperMode Then
         Debug.Print "[DEV] " & Now & ": " & message
+        
     End If
+    
 End Sub
 
 Private Sub TestAddButton()
+
     mItemTextHasFocus = True
     UpdateItemButtonsBasedOnFocus
     MsgBox "btnAddItem.Enabled: " & btnAddItem.Enabled
+    
+End Sub
+
+Private Sub txtResCol1_Change()
+    On Error GoTo ErrHandler
+    UpdateResourcesButtonState
+    Exit Sub
+ErrHandler:
+    HandleFormError "txtResCol1_Change"
+End Sub
+
+Private Sub txtResCol2_Change()
+    On Error GoTo ErrHandler
+    UpdateResourcesButtonState
+    Exit Sub
+ErrHandler:
+    HandleFormError "txtResCol2_Change"
+End Sub
+
+Private Sub txtResCol3_Change()
+    On Error GoTo ErrHandler
+    UpdateResourcesButtonState
+    Exit Sub
+ErrHandler:
+    HandleFormError "txtResCol3_Change"
+End Sub
+
+Private Sub txtDictCol1_Change()
+    On Error GoTo ErrHandler
+    UpdateDictionaryButtonState
+    Exit Sub
+ErrHandler:
+    HandleFormError "txtDictCol1_Change"
+End Sub
+
+Private Sub txtDictCol2_Change()
+    On Error GoTo ErrHandler
+    UpdateDictionaryButtonState
+    Exit Sub
+ErrHandler:
+    HandleFormError "txtDictCol2_Change"
+End Sub
+
+Private Sub UpdateResourcesButtonState()
+    
+    On Error GoTo ErrHandler
+    
+    If mSecTypes(mCurrentSection) <> TYPE_RESOURCES Then Exit Sub
+    If mEditingRowIdx > 0 Then Exit Sub  ' Don't change during edit mode
+    
+    ' Check if ANY field has content
+    Dim hasContent As Boolean
+    hasContent = (Len(Trim(txtResCol1.Text)) > 0 Or _
+                  Len(Trim(txtResCol2.Text)) > 0 Or _
+                  Len(Trim(txtResCol3.Text)) > 0)
+    
+    btnAddRow.Enabled = hasContent
+    
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateResourcesButtonState"
+
+End Sub
+
+Private Sub UpdateDictionaryButtonState()
+    
+    On Error GoTo ErrHandler
+    
+    If mSecTypes(mCurrentSection) <> TYPE_DICTIONARY Then Exit Sub
+    If mEditingRowIdx > 0 Then Exit Sub  ' Don't change during edit mode
+    
+    ' Check if ANY field has content
+    Dim hasContent As Boolean
+    hasContent = (Len(Trim(txtDictCol1.Text)) > 0 Or _
+                  Len(Trim(txtDictCol2.Text)) > 0)
+    
+    btnAddRow.Enabled = hasContent
+    
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateDictionaryButtonState"
+
 End Sub
 
 '====================================================
@@ -232,6 +330,60 @@ ErrHandler:
 
 End Sub
 
+Private Sub fraRowEditor_Change()
+    On Error GoTo ErrHandler
+    
+    ' Any textbox in the row editor changed, update button state
+    UpdateRowButtonsBasedOnContent
+    
+    Exit Sub
+ErrHandler:
+    HandleFormError "fraRowEditor_Change"
+End Sub
+
+Private Sub UpdateRowButtonsBasedOnContent()
+    
+    On Error GoTo ErrHandler
+    
+    ' For Table sections specifically: check if row editor fields have content
+    If mSecTypes(mCurrentSection) <> TYPE_TABLE Then
+        ' For Resources/Dictionary, always enable Add (they have their own controls)
+        Exit Sub
+    End If
+    
+    If mEditingRowIdx > 0 Then Exit Sub  ' Don't change buttons during edit mode
+    
+    ' Check if ANY column has content
+    Dim hasContent As Boolean
+    hasContent = False
+    
+    Dim cols() As String
+    cols = Split(mSecCols(mCurrentSection), "~")
+    
+    Dim i As Long
+    For i = 0 To UBound(cols)
+        Dim txt As MSForms.Control
+        On Error Resume Next
+        Set txt = fraRowEditor.Controls("txt_col_" & i)
+        On Error GoTo ErrHandler
+        
+        If Not txt Is Nothing Then
+            If Len(Trim(txt.Text)) > 0 Then
+                hasContent = True
+                Exit For
+            End If
+        End If
+    Next i
+    
+    btnAddRow.Enabled = hasContent
+    
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateRowButtonsBasedOnContent"
+
+End Sub
+
 Private Sub InitSections()
     On Error GoTo ErrHandler
 
@@ -249,8 +401,8 @@ Private Sub InitSections()
     mSecNames(3) = SEC_PURPOSE
     mSecNames(4) = SEC_SCOPE
     mSecNames(5) = SEC_DICTIONARY
-    mSecNames(6) = SEC_ROLES
-    mSecNames(7) = SEC_OBJECTIVES
+    mSecNames(6) = SEC_OBJECTIVES
+    mSecNames(7) = SEC_ROLES
     mSecNames(8) = SEC_STEPS
     mSecNames(9) = SEC_KPIS
     mSecNames(10) = SEC_RESOURCES
@@ -755,7 +907,11 @@ Private Sub UpdateSectionButtons()
         btnRemoveSection.Enabled = True
         btnEditSection.Enabled = True
     Else
-        btnRemoveSection.Enabled = Not isBuiltIn
+        ' Process Steps can be deleted, so it's always removable
+        Dim isProcessSteps As Boolean
+        isProcessSteps = (LCase(Trim(mSecNames(secIdx))) = LCase(SEC_STEPS))
+        
+        btnRemoveSection.Enabled = (Not isBuiltIn Or isProcessSteps)
         btnEditSection.Enabled = Not isBuiltIn
     End If
     
@@ -936,10 +1092,21 @@ Private Sub btnEditSection_Click()
         Dim currentName As String
         currentName = mSecNames(mEditingSectionIdx)
 
-        If IsBuiltInSectionName(currentName) And LCase(newName) <> LCase(currentName) And Not mDeveloperMode Then
-            Dim resp As VbMsgBoxResult
-            resp = MsgBox("'" & currentName & "' is a built-in section...", vbYesNo + vbExclamation, "Built-in Section")
-            If resp = vbNo Then Exit Sub
+        If IsBuiltInSectionName(mSecNames(secIdx)) Then
+            ' Special case: Process Steps CAN be deleted, but with strong confirmation
+            If LCase(Trim(mSecNames(secIdx))) = LCase(SEC_STEPS) Then
+                Dim resp As VbMsgBoxResult
+                resp = MsgBox("Delete '" & mSecNames(secIdx) & "'?" & vbCrLf & vbCrLf & _
+                              "This built-in section contains important workflow steps. " & _
+                              "This action cannot be undone. Are you SURE?", _
+                              vbYesNo + vbExclamation, "Delete Process Steps?")
+                If resp = vbNo Then Exit Sub
+                ' If they click Yes, continue with deletion
+            ElseIf Not mDeveloperMode Then
+                ' Other built-in sections cannot be deleted (unless dev mode)
+                MsgBox "'" & mSecNames(secIdx) & "' is a built-in section and cannot be removed.", vbExclamation
+                Exit Sub
+            End If
         End If
 
         PushUndo
@@ -2563,6 +2730,7 @@ Private Sub ShowTableSection(ByVal idx As Long)
     chkHasHeader.Visible = True
 
     Dim colCount As Long
+    
     If mSecCols(idx) <> "" Then
         colCount = UBound(Split(mSecCols(idx), "~")) + 1
     Else
@@ -2585,6 +2753,7 @@ Private Sub ShowTableSection(ByVal idx As Long)
 
     RefreshRowList idx
     BuildRowEditorFields
+    UpdateRowButtonsBasedOnContent
 
     Exit Sub
 
@@ -3064,6 +3233,7 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
 
     RefreshRowList idx
     UpdateRowControls
+    UpdateResourcesButtonState
 
     Exit Sub
 
@@ -3096,6 +3266,7 @@ Private Sub ShowDictionarySection(ByVal idx As Long)
 
     RefreshRowList idx
     UpdateRowControls
+    UpdateDictionaryButtonState
 
     Exit Sub
 
