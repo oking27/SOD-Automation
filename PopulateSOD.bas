@@ -1,4 +1,4 @@
-Attribute VB_Name = "PopSOD"
+Attribute VB_Name = "PopulateSOD"
 Option Explicit
 
 '====================================================
@@ -115,9 +115,7 @@ Public Sub PopulateSOD()
     Dim DocTitle As String
     
     Dim GroupVal As String
-
     Dim Response As VbMsgBoxResult
-
     On Error GoTo ErrHandler
 
     Set ws = ActiveSheet
@@ -131,7 +129,6 @@ Public Sub PopulateSOD()
 
     ' ---- Validation gate ----
     Set issues = ValidateSheet(tbl)
-
     If HasSeverity(issues, SEV_FATAL) Then
         MsgBox "Cannot populate:" & vbCrLf & vbCrLf & FormatIssueReport(issues), _
                vbCritical, "SOD Populator"
@@ -167,9 +164,7 @@ Public Sub PopulateSOD()
 
     ' ---- Body ----
     col = 1
-
     Do While col <= tbl.ListColumns.count
-
         hdr = Trim(tbl.ListColumns(col).name)
         
         Select Case LCase(hdr)
@@ -183,16 +178,12 @@ Public Sub PopulateSOD()
 
                 If HasTableColumns(tbl, col) Then
                     col = GetLastTableColumn(tbl, col) + 1
-
                 ElseIf HasBulletColumns(tbl, col) Then
                     col = GetLastBulletColumn(tbl, col) + 1
-
                 Else
                     col = col + 1
                 End If
-
             Else
-
                 WriteHeading wdDoc, hdr
 
                 If HasTableColumns(tbl, col) Then
@@ -202,18 +193,14 @@ Public Sub PopulateSOD()
                 ElseIf HasBulletColumns(tbl, col) Then
                     CreateNestedBulletSection wdDoc, tbl, col
                     col = GetLastBulletColumn(tbl, col) + 1
-
                 Else
                     CreateContentSection wdDoc, tbl, col
                     col = col + 1
                 End If
-
             End If
-
         Else
             col = col + 1
         End If
-
     Loop
     
     ' ---- Headers / Footers / Logo ----
@@ -221,7 +208,6 @@ Public Sub PopulateSOD()
 
     ' ---- Finish ----
     wdApp.Visible = True
-
 
     Exit Sub
 
@@ -232,6 +218,7 @@ ErrHandler:
 
     On Error Resume Next
     If Not wdDoc Is Nothing Then wdDoc.Close SaveChanges:=False
+    
     If weCreatedApp Then
         If Not wdApp Is Nothing Then
             If wdApp.Documents.count = 0 Then wdApp.Quit
@@ -245,8 +232,10 @@ End Sub
 
 Private Function GetLogoPath() As String
     On Error Resume Next
+    
     GetLogoPath = Trim(ThisWorkbook.Names("SOD_LogoPath").RefersToRange.Value)
     On Error GoTo 0
+    
 End Function
 
 Private Function RenderSpecialSection( _
@@ -255,7 +244,6 @@ Private Function RenderSpecialSection( _
     ByVal colNum As Long) As Boolean
 
     Select Case LCase(Trim(tbl.ListColumns(colNum).name))
-
         Case "purpose"
             RenderPurpose wdDoc, tbl, colNum
             RenderSpecialSection = True
@@ -286,7 +274,6 @@ Private Function RenderSpecialSection( _
 
         Case Else
             RenderSpecialSection = False
-
     End Select
 
 End Function
@@ -339,7 +326,7 @@ Private Sub RenderDictionary( _
 
     colCount = 2
 
-    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount, colCount)
+    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount + 1, colCount)
     wdTable.Style = "Table Grid"
 
     For r = 1 To rowCount
@@ -377,7 +364,6 @@ Private Sub WriteBoldInlineLabel( _
     Set p = wdDoc.Paragraphs(wdDoc.Paragraphs.count - 1).Range
 
     p.Style = "SOD Body"
-
     p.Words(1).Bold = True
 
 End Sub
@@ -399,7 +385,6 @@ Private Sub RenderRoles( _
     lastHelperCol = GetLastBulletColumn(tbl, colNum)
 
     For r = 1 To tbl.ListRows.count
-
         role = Trim(tbl.DataBodyRange(r, colNum).Value)
 
         If role <> "" Then
@@ -420,10 +405,10 @@ Private Sub RenderRoles( _
                     Set para = wdDoc.Paragraphs(wdDoc.Paragraphs.count - 1).Range
                     para.Style = "SOD Body"
                     para.ParagraphFormat.LeftIndent = ROLE_INDENT
+                    para.Characters(1).Bold = True
                 End If
             End If
         Next c
-
     Next r
 
 End Sub
@@ -445,7 +430,6 @@ Private Sub RenderProcessSteps( _
     lastHelperCol = GetLastBulletColumn(tbl, colNum)
 
     For r = 1 To tbl.ListRows.count
-
         stepText = Trim(tbl.DataBodyRange(r, colNum).Value)
 
         If stepText <> "" Then
@@ -471,7 +455,6 @@ Private Sub RenderProcessSteps( _
                 End If
             End If
         Next c
-
     Next r
 
 End Sub
@@ -551,7 +534,7 @@ Private Sub RenderAdditionalResources( _
     colCount = lastCol - firstCol + 1
 
     ' Create the table
-    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount, colCount)
+    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount + 1, colCount)
     wdTable.Style = "Table Grid"
     
     For r = 1 To rowCount
@@ -588,24 +571,19 @@ Private Function GetCombinedText( _
     ByVal colNum As Long) As String
 
     Dim r As Long
-
     For r = 1 To tbl.ListRows.count
 
         If Trim(tbl.DataBodyRange(r, colNum).Value) <> "" Then
 
             If Len(GetCombinedText) > 0 Then
-
                 GetCombinedText = _
                     GetCombinedText & " "
-
             End If
 
             GetCombinedText = _
                 GetCombinedText & _
                 Trim(tbl.DataBodyRange(r, colNum).Value)
-
         End If
-
     Next r
 
 End Function
@@ -639,7 +617,6 @@ Private Function ValidateSheet(ByVal tbl As ListObject) As Collection
     For col = 1 To tbl.ListColumns.count
 
         hdr = Trim(tbl.ListColumns(col).name)
-
         If IsTitleColumn(hdr) Then
             titleCount = titleCount + 1
             expectingGroup = ""
@@ -649,6 +626,7 @@ Private Function ValidateSheet(ByVal tbl As ListObject) As Collection
                 issues.Add SEV_WARN & "|" & hdr & _
                     "|Orphaned table column: not preceded by a heading column. Its content will not appear in the document."
             End If
+            
             expectingGroup = "TABLE"
 
         ElseIf IsBulletColumn(hdr) Then
@@ -657,7 +635,6 @@ Private Function ValidateSheet(ByVal tbl As ListObject) As Collection
                     "|Orphaned bullet column: not preceded by a heading column. Its content will not appear in the document."
             End If
             expectingGroup = "BULLET"
-
         Else
             If IsLikelyTypo(hdr) Then
                 issues.Add SEV_WARN & "|" & hdr & _
@@ -665,7 +642,6 @@ Private Function ValidateSheet(ByVal tbl As ListObject) As Collection
             End If
             expectingGroup = "PENDING"
         End If
-
     Next col
 
     If titleCount = 0 Then
@@ -694,7 +670,6 @@ End Function
 Private Function HasSeverity(ByVal issues As Collection, ByVal sev As String) As Boolean
 
     Dim itm As Variant
-
     For Each itm In issues
         If Split(itm, "|")(0) = sev Then
             HasSeverity = True
@@ -728,8 +703,8 @@ Private Function GetWordApp(ByRef weCreatedApp As Boolean) As Object
     Dim wdApp As Object
 
     weCreatedApp = False
-
     On Error Resume Next
+    
     Set wdApp = GetObject(, "Word.Application")
     On Error GoTo 0
 
@@ -755,6 +730,7 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
         .Color = GREG_BLUE
         .Spacing = 1.5
     End With
+    
     s.ParagraphFormat.SpaceBefore = 10
     s.ParagraphFormat.SpaceAfter = 0
     s.ParagraphFormat.Alignment = wdAlignParagraphCenter
@@ -768,6 +744,7 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
         .Allcaps = True
         .Spacing = 1.5  ' Extended letter spacing
     End With
+    
     s.ParagraphFormat.SpaceBefore = 0
     s.ParagraphFormat.SpaceAfter = 10
     s.ParagraphFormat.Alignment = wdAlignParagraphCenter
@@ -782,6 +759,7 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
         .Underline = 1
         .UnderlineColor = GREG_YELLOW
     End With
+    
     s.ParagraphFormat.SpaceBefore = 18
     s.ParagraphFormat.SpaceAfter = 0
     s.ParagraphFormat.Alignment = wdAlignParagraphCenter
@@ -792,6 +770,7 @@ Private Sub BuildStyles(ByVal wdDoc As Object)
         .name = BODY_FONT
         .Size = BODY_SIZE
     End With
+    
     s.ParagraphFormat.SpaceBefore = 0
     s.ParagraphFormat.SpaceAfter = 6
 
@@ -976,7 +955,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
         .Text = "Group: " & GroupVal
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -984,7 +963,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
         .Text = "Updated: " & todayStr
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphRight
     End With
 
@@ -992,7 +971,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
         .Text = DocTitle
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -1000,7 +979,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
         .Text = "Page 1"
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphRight
     End With
 
@@ -1037,7 +1016,6 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
     rng.Text = ""
 
     Set tbl = ftr.Range.Tables.Add(ftr.Range, 1, 2)
-
     With tbl.Borders
         .InsideLineStyle = 0
         .OutsideLineStyle = 0
@@ -1052,7 +1030,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
         .Text = DocTitle
         .Font.name = "Lato"
         .Font.Color = GREG_GRAY
-        .Font.Size = 11
+        .Font.Size = 10
         .ParagraphFormat.Alignment = wdAlignParagraphLeft
     End With
 
@@ -1063,7 +1041,7 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
     rightRng.Fields.Add rightRng, wdFieldPage
 
     tbl.cell(1, 2).Range.Font.name = "Lato"
-    tbl.cell(1, 2).Range.Font.Size = 11
+    tbl.cell(1, 2).Range.Font.Size = 10
     tbl.cell(1, 2).Range.Font.Color = GREG_GRAY
     tbl.cell(1, 2).Range.ParagraphFormat.Alignment = wdAlignParagraphRight
 
@@ -1085,7 +1063,6 @@ Private Sub CreateContentSection(ByVal wdDoc As Object, _
     lastRow = tbl.ListRows.count
 
     For r = 1 To lastRow + 1
-
         If r <= lastRow Then
 
             If Trim(tbl.DataBodyRange(r, colNum).Value) <> "" Then
@@ -1094,11 +1071,9 @@ Private Sub CreateContentSection(ByVal wdDoc As Object, _
                 RenderBlock wdDoc, block
                 Set block = New Collection
             End If
-
         Else
             RenderBlock wdDoc, block
         End If
-
     Next r
 
 End Sub
@@ -1182,7 +1157,6 @@ Private Sub CreateNestedBulletSection(ByVal wdDoc As Object, _
                 rng.Style = "SOD Body"
                 ApplyBulletLevel rng, level
             End If
-
         Next c
     Next r
 
@@ -1238,7 +1212,6 @@ Private Sub CreateTableSection(ByVal wdDoc As Object, _
     wordR = 0
 
     For r = startRow To rowCount
-
         wordR = wordR + 1
 
         For c = 1 To colCount
@@ -1250,7 +1223,6 @@ Private Sub CreateTableSection(ByVal wdDoc As Object, _
                 wdTable.cell(wordR, c).Range.Bold = True
             End If
         Next c
-
     Next r
 
     wdTable.Style = "Table Grid"
@@ -1269,7 +1241,6 @@ Private Sub ApplyColumnWidths(ByVal wdDoc As Object, ByVal wdTable As Object)
     Dim c As Long
 
     colCount = wdTable.Columns.count
-
     If colCount = 0 Then Exit Sub
 
     totalWidth = wdDoc.PageSetup.PageWidth _
@@ -1299,7 +1270,6 @@ Private Function LastUsedTableRow(ByVal tbl As ListObject, _
                                   ByVal lastCol As Long) As Long
 
     Dim r As Long, c As Long
-
     For r = tbl.ListRows.count To 1 Step -1
         For c = firstCol To lastCol
             If Trim(tbl.DataBodyRange(r, c).Value) <> "" Then
@@ -1318,11 +1288,13 @@ End Function
 Private Function HasTableColumns(ByVal tbl As ListObject, ByVal colNum As Long) As Boolean
     If colNum >= tbl.ListColumns.count Then Exit Function
     HasTableColumns = IsTableColumn(tbl.ListColumns(colNum + 1).name)
+    
 End Function
 
 Private Function HasBulletColumns(ByVal tbl As ListObject, ByVal colNum As Long) As Boolean
     If colNum >= tbl.ListColumns.count Then Exit Function
     HasBulletColumns = IsBulletColumn(tbl.ListColumns(colNum + 1).name)
+    
 End Function
 
 Private Function GetLastTableColumn(ByVal tbl As ListObject, ByVal colNum As Long) As Long
@@ -1333,6 +1305,7 @@ Private Function GetLastTableColumn(ByVal tbl As ListObject, ByVal colNum As Lon
         c = c + 1
     Loop
     GetLastTableColumn = c - 1
+    
 End Function
 
 Private Function GetLastBulletColumn(ByVal tbl As ListObject, ByVal colNum As Long) As Long
@@ -1343,22 +1316,26 @@ Private Function GetLastBulletColumn(ByVal tbl As ListObject, ByVal colNum As Lo
         c = c + 1
     Loop
     GetLastBulletColumn = c - 1
+    
 End Function
 
 Public Function IsTableColumn(ByVal txt As String) As Boolean
     txt = Trim(txt)
     If InStr(txt, " ") > 0 Then Exit Function
     IsTableColumn = (LCase(Left(txt, 5)) = "table")
+    
 End Function
 
 Public Function IsBulletColumn(ByVal txt As String) As Boolean
     txt = Trim(txt)
     If InStr(txt, " ") > 0 Then Exit Function
     IsBulletColumn = (LCase(Left(txt, 6)) = "bullet")
+    
 End Function
 
 Public Function IsTitleColumn(ByVal txt As String) As Boolean
     IsTitleColumn = (LCase(Trim(txt)) = "title")
+    
 End Function
 
 Public Function IsMetaColumn(ByVal txt As String) As Boolean
@@ -1366,6 +1343,7 @@ Public Function IsMetaColumn(ByVal txt As String) As Boolean
         Case "title", "group"
             IsMetaColumn = True
     End Select
+    
 End Function
 
 Private Function GetDocumentTitle(ByVal tbl As ListObject, ByVal TitleCol As Long) As String
@@ -1385,4 +1363,5 @@ End Function
 
 Public Sub OpenSODEditor()
     frmSOD.Show
+    
 End Sub

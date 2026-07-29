@@ -115,6 +115,7 @@ Private Sub HandleFormError(ByVal procName As String)
            vbExclamation, "SOD Form - Error"
 
 End Sub
+
 Private Sub Workbook_Open()
 
     If InStr(1, ThisWorkbook.path, "SharePoint Site Name", vbTextCompare) > 0 Or _
@@ -172,6 +173,96 @@ End Sub
 
 Private Sub fraRowEditor_Click()
 
+End Sub
+
+Private Sub lblSectionHelp_Click()
+    On Error GoTo ErrHandler
+    
+    Dim helpText As String
+    
+    If mCurrentSection > 0 And mCurrentSection <= mSecCount Then
+    
+        Dim secName As String
+        secName = mSecNames(mCurrentSection)
+        If IsBuiltInSectionName(secName) Then
+            ' Built-in specific instructions
+            Select Case LCase(Trim(secName))
+                Case LCase(SEC_TITLE):
+                    helpText = "Title Section" & vbCrLf & vbCrLf & _
+                              "Enter the title/name of the procedure or process." & vbCrLf & _
+                              "This should be a clear, concise summary."
+                
+                Case LCase(SEC_GROUP):
+                    helpText = "Group Section" & vbCrLf & vbCrLf & _
+                              "Select the department or functional group responsible for this procedure." & vbCrLf & _
+                              "Choose from the dropdown list."
+                
+                Case LCase(SEC_PURPOSE):
+                    helpText = "Purpose Section" & vbCrLf & vbCrLf & _
+                              "Explain WHY this procedure exists." & vbCrLf & _
+                              "What problem does it solve?"
+                
+                Case LCase(SEC_SCOPE):
+                    helpText = "Scope Section" & vbCrLf & vbCrLf & _
+                              "Define what IS and IS NOT covered by this procedure." & vbCrLf & _
+                              "Specify boundaries and exceptions."
+                
+                Case LCase(SEC_DICTIONARY):
+                    helpText = "Dictionary Section" & vbCrLf & vbCrLf & _
+                              "Define key terms, acronyms, and abbreviations used." & vbCrLf & _
+                              "Each row: Term | Definition"
+                
+                Case LCase(SEC_ROLES):
+                    helpText = "Roles Section" & vbCrLf & vbCrLf & _
+                              "List roles involved in this process." & vbCrLf & _
+                              "Add sub-items to describe each role's responsibilities."
+                
+                Case LCase(SEC_OBJECTIVES):
+                    helpText = "Objectives Section" & vbCrLf & vbCrLf & _
+                              "List the desired outcomes of this procedure." & vbCrLf & _
+                              "What should be accomplished?"
+                
+                Case LCase(SEC_STEPS):
+                    helpText = "Process Steps Section" & vbCrLf & vbCrLf & _
+                              "Enter step-by-step instructions." & vbCrLf & _
+                              "Parent item = major step" & vbCrLf & _
+                              "Sub-items = details, alternatives, decision points"
+                
+                Case LCase(SEC_KPIS):
+                    helpText = "Key Performance Indicators" & vbCrLf & vbCrLf & _
+                              "List metrics used to measure process effectiveness." & vbCrLf & _
+                              "What quantifies success?"
+                
+                Case LCase(SEC_RESOURCES):
+                    helpText = "Resources Section" & vbCrLf & vbCrLf & _
+                              "List tools, templates, forms, and references needed." & vbCrLf & _
+                              "Each row: Resource Name | Type | Location"
+                
+                Case Else:
+                    helpText = "Built-in Section" & vbCrLf & vbCrLf & _
+                              "This is a default SOD section."
+            End Select
+        Else
+            ' Custom section generic instructions
+            helpText = "Custom Section: " & secName & vbCrLf & vbCrLf & _
+                      "Add and manage entries:" & vbCrLf & vbCrLf & _
+                      "1. Type in the text field" & vbCrLf & _
+                      "2. Click '+ Add' to save" & vbCrLf & _
+                      "3. Select and click 'Edit' to modify" & vbCrLf & _
+                      "4. Click '– Remove' to delete" & vbCrLf & _
+                      "5. Use Move Up/Down to reorder"
+        End If
+    Else
+        helpText = "Help" & vbCrLf & vbCrLf & _
+                  "Select a section to view specific instructions."
+    End If
+    
+    MsgBox helpText, vbInformation, "Help: " & mSecNames(mCurrentSection)
+    Exit Sub
+    
+ErrHandler:
+    HandleFormError "lblSectionHelp_Click"
+    
 End Sub
 
 Private Sub lblSectionTitle_Click()
@@ -318,7 +409,6 @@ Private Sub UserForm_Initialize()
     Set ws = ActiveSheet
 
     If ws.ListObjects.count > 0 Then
-    
         If ws.ListObjects(1).ListRows.count > 0 Then
             mSecCount = 0
             LoadFromSheet
@@ -539,6 +629,7 @@ Private Function GetBuiltInHasSubItems(ByVal name As String) As Boolean
         Case LCase(SEC_ROLES), LCase(SEC_STEPS), LCase(SEC_RESOURCES)
             GetBuiltInHasSubItems = True
     End Select
+    
 End Function
 
 Private Sub UpdateFormCaption()
@@ -948,10 +1039,12 @@ Private Sub UpdateSectionButtons()
         btnEditSection.Enabled = True
     Else
         ' Process Steps can be deleted, so it's always removable
-        Dim isProcessSteps As Boolean
-        isProcessSteps = (LCase(Trim(mSecNames(secIdx))) = LCase(SEC_STEPS))
+        ' Process Steps and Dictionary can be deleted
+        Dim isDeletable As Boolean
+        isDeletable = (LCase(Trim(mSecNames(secIdx))) = LCase(SEC_STEPS) Or _
+                       LCase(Trim(mSecNames(secIdx))) = LCase(SEC_DICTIONARY))
         
-        btnRemoveSection.Enabled = (Not isBuiltIn Or isProcessSteps)
+        btnRemoveSection.Enabled = (Not isBuiltIn Or isDeletable)
         btnEditSection.Enabled = Not isBuiltIn
     End If
     
@@ -1212,14 +1305,19 @@ Private Sub btnRemoveSection_Click()
         Exit Sub
     End If
 
+    Dim resp As VbMsgBoxResult
     Dim secIdx As Long
     secIdx = selIdx + 1
 
     If IsBuiltInSectionName(mSecNames(secIdx)) Then
-        ' Special case: Process Steps CAN be deleted with confirmation
-        If LCase(Trim(mSecNames(secIdx))) = LCase(SEC_STEPS) Then
-            ' Allow it to continue (confirmation happens below)
-        ElseIf Not mDeveloperMode Then
+    ' Special case: Process Steps and Dictionary CAN be deleted, but with confirmation
+            If LCase(Trim(mSecNames(secIdx))) = LCase(SEC_STEPS) Or LCase(Trim(mSecNames(secIdx))) = LCase(SEC_DICTIONARY) Then
+                resp = MsgBox("Delete '" & mSecNames(secIdx) & "'?" & vbCrLf & vbCrLf & _
+                              "This action cannot be undone. Are you SURE?", _
+                              vbYesNo + vbExclamation, "Delete " & mSecNames(secIdx) & "?")
+                If resp = vbNo Then Exit Sub
+                ' Allow it to continue (confirmation happens below)
+            ElseIf Not mDeveloperMode Then
             ' Other built-in sections cannot be deleted (unless dev mode)
             MsgBox "'" & mSecNames(secIdx) & "' is a built-in section and cannot be removed.", vbExclamation
             Exit Sub
@@ -1231,7 +1329,6 @@ Private Sub btnRemoveSection_Click()
         Exit Sub
     End If
 
-    Dim resp As VbMsgBoxResult
     resp = MsgBox("Remove section '" & mSecNames(secIdx) & "'?" & vbCrLf & vbCrLf & _
                   "This permanently deletes all of its data and cannot be undone. Consider saving first.", _
                   vbYesNo + vbExclamation, "Remove Section")
@@ -1646,6 +1743,15 @@ Private Sub ShowListSection(ByVal idx As Long)
 
     lstItems.Clear
     lblSubItems.Caption = "Sub-items:"
+    
+    mCurrentSection = idx
+
+    RefreshItemsDisplay
+    
+    ' Select the first item by default
+    If lstItems.ListCount > 0 Then
+        lstItems.ListIndex = 0
+    End If
 
     Dim i As Long
     For i = 1 To mSecItems(idx).count
@@ -2324,6 +2430,7 @@ Private Sub SaveEditedItemTextInPlace()
 
     Dim newItem As String
     newItem = Trim(txtItem.Text)
+    
     If newItem = "" Then Exit Sub
 
     Dim newCol As New Collection
@@ -2399,7 +2506,6 @@ Private Sub btnAddSubItem_Click()
 
             Dim cleanLine As String
             cleanLine = Trim(rawLines(lineIdx))
-
             If cleanLine <> "" Then
 
                 If existingSubs = "" Then
@@ -2495,7 +2601,6 @@ Private Sub btnRemoveSubItem_Click()
             Next j
 
             If newSubs <> "" Then newStr2 = newStr2 & "|" & newSubs
-
         End If
 
         Dim newCol2 As New Collection
@@ -2567,6 +2672,7 @@ Private Sub btnEditSubItem_Click()
                 newCol.Add mSecItems(mCurrentSection)(i)
             End If
         Next i
+        
         Set mSecItems(mCurrentSection) = newCol
 
         Dim savedSubIdx As Long
@@ -2577,9 +2683,7 @@ Private Sub btnEditSubItem_Click()
 
         RefreshSubItems
         lstSubItems.ListIndex = savedSubIdx
-
     Else
-
         Dim parentIdx2 As Long
         parentIdx2 = lstItems.ListIndex
 
@@ -2625,7 +2729,6 @@ Private Sub btnEditSubItem_Click()
         
         UpdateItemButtonsBasedOnFocus
         UpdateSubItemButtonsBasedOnFocus
-
     End If
 
     Exit Sub
@@ -2704,6 +2807,7 @@ Private Sub SaveEditedSubItemTextInPlace(ByVal itemIdx As Long)
             newCol.Add mSecItems(mCurrentSection)(i)
         End If
     Next i
+    
     Set mSecItems(mCurrentSection) = newCol
 
 End Sub
@@ -2769,7 +2873,6 @@ Private Sub ReorderItem(ByRef itemIndex As Long, _
 
     ' Update the index to point to the new location
     itemIndex = itemIndex + direction
-
     Exit Sub
 
 ErrHandler:
@@ -2788,7 +2891,6 @@ Private Sub RefreshItemsAfterReorder()
     
     UpdateItemButtonsBasedOnFocus  ' ? ADD THIS
     txtItem.SetFocus
-
     Exit Sub
 
 ErrHandler:
@@ -2807,7 +2909,6 @@ Private Sub RefreshSubItemsAfterReorder()
     
     UpdateSubItemButtonsBasedOnFocus  ' ? ADD THIS
     txtSubItem.SetFocus
-
     Exit Sub
 
 ErrHandler:
@@ -2823,7 +2924,6 @@ Private Sub RefreshRowsAfterReorder()
     mLoading = True
     lstRows.ListIndex = mEditingRowIdx - 1
     mLoading = False
-
     Exit Sub
 
 ErrHandler:
@@ -2876,7 +2976,6 @@ Private Sub ShowTableSection(ByVal idx As Long)
     RefreshRowList idx
     BuildRowEditorFields
     UpdateRowButtonsBasedOnContent
-
     Exit Sub
 
 ErrHandler:
@@ -2984,9 +3083,7 @@ Private Sub RefreshRowEditorLabels()
             Else
                 lbl.Caption = "Column " & (i + 1) & ":"
             End If
-
         End If
-
     Next i
 
     Exit Sub
@@ -3056,7 +3153,6 @@ Private Sub spnColCount_Change()
             mLoading = False
             Exit Sub
         End If
-
     End If
 
     PushUndo
@@ -3087,7 +3183,6 @@ Private Sub spnColCount_Change()
     btnEditRow.Caption = "Edit"
 
     BuildRowEditorFields
-
     Exit Sub
 
 ErrHandler:
@@ -3526,6 +3621,7 @@ Private Sub RefreshRowList(ByVal idx As Long)
             End If
         End If
     End If
+    
     UpdateRowControls
     Exit Sub
 
@@ -3559,7 +3655,6 @@ Private Sub UpdateRowControls()
 
     btnEditRow.Enabled = hasSelection
     btnRemoveRow.Enabled = hasSelection
-
     Exit Sub
 
 ErrHandler:
@@ -3599,7 +3694,6 @@ Private Sub btnAddRow_Click()
             Dim newRowStr As String
 
             If mSecTypes(mCurrentSection) = TYPE_DICTIONARY Then
-
                 Dim dCol1 As String, dCol2 As String
                 dCol1 = Trim(txtDictCol1.Text)
                 dCol2 = Trim(txtDictCol2.Text)
@@ -3652,7 +3746,7 @@ Private Sub btnAddRow_Click()
             lstRows.ListIndex = mEditingRowIdx - 1
             LoadTableRowIntoFields mEditingRowIdx
         Else
-
+        
             If mSecCols(mCurrentSection) = "" Then
                 MsgBox "Set a column count before adding rows.", vbExclamation
                 Exit Sub
@@ -3706,9 +3800,7 @@ Private Sub btnRemoveRow_Click()
 
             RefreshRowList mCurrentSection
             lstRows.ListIndex = mEditingRowIdx - 1
-
         Else
-
             selIdx = lstRows.ListIndex
 
             If selIdx < 0 Then
@@ -3789,9 +3881,7 @@ Private Sub btnEditRow_Click()
 
             RefreshRowList mCurrentSection
             lstRows.ListIndex = savedIdx - 1
-
         Else
-
             Dim selIdx As Long
             selIdx = lstRows.ListIndex
 
@@ -3829,7 +3919,6 @@ Private Sub btnEditRow_Click()
     ElseIf mSecTypes(mCurrentSection) = TYPE_TABLE Then
 
         If mEditingRowIdx > 0 Then
-
             ' CONFIRM
             PushUndo
             SaveTableRowFieldsInPlace mEditingRowIdx
@@ -3850,7 +3939,6 @@ Private Sub btnEditRow_Click()
         Else
             Dim selIdx2 As Long
             selIdx2 = lstRows.ListIndex
-
             If selIdx2 < 0 Then
                 MsgBox "Select a row to edit.", vbExclamation
                 Exit Sub
@@ -3965,7 +4053,6 @@ Private Sub LoadFromSheet()
     ' by advancing "col" past however many helper columns belong
     ' to the section they just loaded).
     Do While col <= tbl.ListColumns.count
-
         Dim hdr As String
         hdr = Trim(tbl.ListColumns(col).name)
         ' If we somehow land directly on a helper column (e.g. sheet
@@ -4372,7 +4459,6 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
             currentMain = mainVal
             currentSubs = ""
             haveEntry = True
-
         End If
 
         ' Whether this row started a new item or is just a
