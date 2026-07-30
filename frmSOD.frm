@@ -517,25 +517,26 @@ End Function
 
 Private Sub UpdateFormCaption()
     On Error GoTo ErrHandler
-
     Dim titleSecIdx As Long
     Dim titleText As String
     titleSecIdx = FindSection(SEC_TITLE)
     If titleSecIdx > 0 Then
         titleText = Trim(mSecData(titleSecIdx))
     End If
-
     If titleText <> "" Then
         Me.Caption = "SOD Editor: " & titleText
     Else
         Me.Caption = "SOD Editor"
     End If
 
-    Exit Sub
+    If mDeveloperMode Then
+        Me.Caption = Me.Caption & " [Developer Mode]"
+    End If
 
+    Exit Sub
 ErrHandler:
     HandleFormError "UpdateFormCaption"
-
+    
 End Sub
 
 Private Sub PopulateGroupDropdown()
@@ -1096,28 +1097,23 @@ End Sub
 
 Private Sub btnEditSection_Click()
     On Error GoTo ErrHandler
-
     If mAddingSection Then
         CreateNewSection TYPE_LIST
         Exit Sub
     End If
-
     If mEditingSectionIdx > 0 Then
         ' CONFIRM the rename
         Dim newName As String
         newName = Trim(txtSectionName.Text)
-
         If newName = "" Then
             MsgBox "Section name cannot be blank.", vbExclamation
             Exit Sub
         End If
-
         Dim currentName As String
         currentName = mSecNames(mEditingSectionIdx)
         PushUndo
         mSecNames(mEditingSectionIdx) = newName
         RefreshSectionList
-
         Dim savedIdx As Long
         savedIdx = mEditingSectionIdx
         mEditingSectionIdx = 0
@@ -1126,8 +1122,8 @@ Private Sub btnEditSection_Click()
         btnRemoveSection.Caption = "– Remove Section"
         btnCancel.Caption = "Close Editor"
         txtSectionName.Visible = False
+        lstSections.SpecialEffect = 3   ' Etched (back to normal)
         lstSections.ListIndex = savedIdx - 1
-
         If savedIdx = mCurrentSection Then
             lblSectionTitle.Caption = newName
         End If
@@ -1135,18 +1131,16 @@ Private Sub btnEditSection_Click()
         ' ENTER rename/reorder mode
         Dim selIdx As Long
         selIdx = lstSections.ListIndex
-
         If selIdx < 0 Then
             MsgBox "Select a section to edit.", vbExclamation
             Exit Sub
         End If
-
+        
         Dim secIdx As Long
         secIdx = selIdx + 1
         txtSectionName.Text = mSecNames(secIdx)
         txtSectionName.Visible = True
         txtSectionName.SetFocus
-
         mEditingSectionIdx = secIdx
         btnEditSection.Caption = "Confirm"
         btnAddSection.Caption = "Move Up"
@@ -1156,13 +1150,15 @@ Private Sub btnEditSection_Click()
         btnAddSection.Enabled = True
         btnEditSection.Enabled = True
         btnRemoveSection.Enabled = True
+
+        lstSections.SpecialEffect = 2   ' Sunken (edit mode indicator)
     End If
-
+    
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "btnEditSection_Click"
-
+    
 End Sub
 
 Private Sub btnRemoveSection_Click()
@@ -1251,7 +1247,7 @@ Private Sub CreateNewSection(ByVal secType As String)
     On Error GoTo ErrHandler
 
     Dim secName As String
-    Dim existingIdx As Long  ' ? DECLARE ONCE HERE
+    Dim existingIdx As Long  ' DECLARE ONCE HERE
     secName = Trim(txtSectionName.Text)
     If secName = "" Then
         MsgBox "Please type a section name first.", vbExclamation
@@ -2264,7 +2260,7 @@ Private Sub btnEditItem_Click()
         btnCancel.Caption = "Cancel"
     
         ' Visual indicator: Raised border
-        lstItems.SpecialEffect = 3  ' Etched
+        lstItems.SpecialEffect = 2  ' Sunken
     
         UpdateSubItemControls
         UpdateItemButtonsBasedOnFocus
@@ -2288,7 +2284,7 @@ Private Sub ExitItemEditMode()
     txtItem.Text = ""
     
     Set mEditSnapshot = Nothing
-    lstItems.SpecialEffect = 2
+    lstItems.SpecialEffect = 3
 
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus   ' restore sub-item controls
@@ -2318,7 +2314,7 @@ Private Sub CancelItemEditMode()
     txtItem.Text = ""
     
     Set mEditSnapshot = Nothing
-    lstItems.SpecialEffect = 2
+    lstItems.SpecialEffect = 3
 
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus
@@ -2674,7 +2670,7 @@ Private Sub btnEditSubItem_Click()
         btnRemoveSubItem.Caption = "Move Down"
         btnCancel.Caption = "Cancel"
         
-        lstSubItems.SpecialEffect = 3
+        lstSubItems.SpecialEffect = 2
         
         UpdateItemButtonsBasedOnFocus
         UpdateSubItemButtonsBasedOnFocus
@@ -2697,7 +2693,7 @@ Private Sub ExitSubItemEditMode()
     txtSubItem.Text = ""
     
     Set mSubEditSnapshot = Nothing
-    lstSubItems.SpecialEffect = 2
+    lstSubItems.SpecialEffect = 3
 
     UpdateItemControls
     UpdateItemButtonsBasedOnFocus
@@ -2724,7 +2720,7 @@ Private Sub CancelSubItemEditMode()
     txtSubItem.Text = ""
     
     Set mSubEditSnapshot = Nothing
-    lstSubItems.SpecialEffect = 2
+    lstSubItems.SpecialEffect = 3
 
     UpdateItemControls
     UpdateSubItemControls
@@ -2843,7 +2839,7 @@ Private Sub RefreshItemsAfterReorder()
     lstItems.ListIndex = mEditingItemIdx - 1
     mLoading = False
     
-    UpdateItemButtonsBasedOnFocus  ' ? ADD THIS
+    UpdateItemButtonsBasedOnFocus  ' ADD THIS
     txtItem.SetFocus
     Exit Sub
 
@@ -2861,7 +2857,7 @@ Private Sub RefreshSubItemsAfterReorder()
     lstSubItems.ListIndex = mEditingSubIdx
     mLoading = False
     
-    UpdateSubItemButtonsBasedOnFocus  ' ? ADD THIS
+    UpdateSubItemButtonsBasedOnFocus  ' ADD THIS
     txtSubItem.SetFocus
     Exit Sub
 
@@ -3500,7 +3496,7 @@ Private Sub ExitRowEditMode()
     btnRemoveRow.Caption = "– Remove"
     btnEditRow.Caption = "Edit"
     btnCancel.Caption = "Close Editor"
-    lstRows.SpecialEffect = 2
+    lstRows.SpecialEffect = 3
     
     UpdateRowControls
 
@@ -3520,7 +3516,7 @@ Private Sub CancelRowEditMode()
     btnAddRow.Caption = "+ Add"
     btnRemoveRow.Caption = "– Remove"
     btnCancel.Caption = "Close Editor"
-    lstRows.SpecialEffect = 2
+    lstRows.SpecialEffect = 3
 
     ClearTableRowFields
     RefreshRowEditorLabels
@@ -3874,7 +3870,7 @@ Private Sub btnEditRow_Click()
         btnCancel.Caption = "Cancel"
 
         ' Visual indicator: Raised border
-        lstRows.SpecialEffect = 3  ' Etched
+        lstRows.SpecialEffect = 2  ' Sunken
 
         UpdateRowReorderButtonStates
         RefreshRowEditorLabels
@@ -5161,5 +5157,4 @@ ErrHandler:
     HandleFormError "CancelAnyActiveEditMode"
 
 End Sub
-
 
