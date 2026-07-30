@@ -3378,25 +3378,22 @@ End Sub
 
 Private Sub ShowResourcesSection(ByVal idx As Long)
     On Error GoTo ErrHandler
-
+    
     ' Resources is a restricted Table: 3 columns, header always on
-    If mSecCols(idx) = "" Then mSecCols(idx) = "col1~col2~col3"
-
+    If mSecCols(idx) = "" Then mSecCols(idx) = "col1" & LIST_SEP & "col2" & LIST_SEP & "col3"
     lblColCount.Visible = True
     spnColCount.Visible = True
     lblColCountValue.Visible = True
     chkHasHeader.Visible = True
-
+    
     Dim colCount As Long
     colCount = 3
-
     mLoading = True
     spnColCount.Value = colCount
     lblColCountValue.Caption = CStr(colCount)
     mSecHasHeader(idx) = True   ' Resources always has header
     chkHasHeader.Value = True
     mLoading = False
-
     ' Restrict spinner and checkbox unless Dev Mode
     If mDeveloperMode Then
         spnColCount.Enabled = True
@@ -3405,49 +3402,45 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
         spnColCount.Enabled = False
         chkHasHeader.Enabled = False
     End If
-
+    
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
     btnEditRow.Visible = True
     fraRowEditor.Visible = True
-
+    
     ' Ensure header row exists with correct labels
     If mSecItems(idx).count = 0 Then
         mSecItems(idx).Add SEC_RESOURCES_COL1 & TABLE_SEP & SEC_RESOURCES_COL2 & TABLE_SEP & SEC_RESOURCES_COL3
     End If
-
+    
     RefreshRowList idx
     BuildRowEditorFields
     Exit Sub
-
 ErrHandler:
     mLoading = False
     HandleFormError "ShowResourcesSection"
-
+    
 End Sub
 
 Private Sub ShowDictionarySection(ByVal idx As Long)
     On Error GoTo ErrHandler
-
+    
     ' Dictionary is a restricted Table: 2 columns, header always on
-    If mSecCols(idx) = "" Then mSecCols(idx) = "col1~col2"
-
+    If mSecCols(idx) = "" Then mSecCols(idx) = "col1" & LIST_SEP & "col2"
     lblColCount.Visible = True
     spnColCount.Visible = True
     lblColCountValue.Visible = True
     chkHasHeader.Visible = True
-
+    
     Dim colCount As Long
     colCount = 2
-
     mLoading = True
     spnColCount.Value = colCount
     lblColCountValue.Caption = CStr(colCount)
     mSecHasHeader(idx) = True   ' Dictionary always has header
     chkHasHeader.Value = True
     mLoading = False
-
     ' Restrict spinner and checkbox unless Dev Mode
     If mDeveloperMode Then
         spnColCount.Enabled = True
@@ -3456,26 +3449,25 @@ Private Sub ShowDictionarySection(ByVal idx As Long)
         spnColCount.Enabled = False
         chkHasHeader.Enabled = False
     End If
-
+    
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
     btnEditRow.Visible = True
     fraRowEditor.Visible = True
-
+    
     ' Ensure header row exists with correct labels
     If mSecItems(idx).count = 0 Then
         mSecItems(idx).Add SEC_DICT_COL1 & TABLE_SEP & SEC_DICT_COL2
     End If
-
     RefreshRowList idx
     BuildRowEditorFields
     Exit Sub
-
+    
 ErrHandler:
     mLoading = False
     HandleFormError "ShowDictionarySection"
-
+    
 End Sub
 
 Private Function ResourceColumnLabel(ByVal colIdx As Long) As String
@@ -4947,82 +4939,63 @@ Private Sub WriteDictionaryToSheet(ByVal ws As Worksheet, _
                                     ByVal secIdx As Long, _
                                     ByVal startCol As Long)
     On Error GoTo ErrHandler
-
+    
     ws.Cells(1, startCol).Value = mSecNames(secIdx)       ' "Dictionary"
     ws.Cells(1, startCol + 1).Value = "Table2"
 
-    ws.Cells(2, startCol).Value = SEC_DICT_COL1           ' "Term"
-    ws.Cells(2, startCol + 1).Value = SEC_DICT_COL2       ' "Definition"
-
     Dim r As Long
-    r = 3   ' actual data starts here, since row 2 is the header label row
+    r = 2   ' data (including header row) starts here now
 
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
         Dim parts() As String
         parts = Split(mSecItems(secIdx)(i), TABLE_SEP)
-
+        
         Dim c As Long
         For c = 0 To 1
             If c <= UBound(parts) Then
                 ws.Cells(r, startCol + c).Value = Trim(parts(c))
             End If
         Next c
-
         r = r + 1
     Next i
-
+    
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "WriteDictionaryToSheet"
-
+    
 End Sub
-
-'====================================================
-' WriteResourcesToSheet
-' Same idea as WriteDictionaryToSheet, but always exactly
-' 3 columns: Resource Type, List or Document Link,
-' Document Number.
-'====================================================
 
 Private Sub WriteResourcesToSheet(ByVal ws As Worksheet, _
                                     ByVal secIdx As Long, _
                                     ByVal startCol As Long)
     On Error GoTo ErrHandler
-
+    
     ws.Cells(1, startCol).Value = mSecNames(secIdx)       ' "Additional Resources"
     ws.Cells(1, startCol + 1).Value = "Table2"
     ws.Cells(1, startCol + 2).Value = "Table3"
 
-    ws.Cells(2, startCol).Value = SEC_RESOURCES_COL1
-    ws.Cells(2, startCol + 1).Value = SEC_RESOURCES_COL2
-    ws.Cells(2, startCol + 2).Value = SEC_RESOURCES_COL3
-
     Dim r As Long
-    r = 3   ' actual data starts here, since row 2 is the header label row
+    r = 2   ' data (including header row) starts here now
 
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
-
         Dim parts() As String
         parts = Split(mSecItems(secIdx)(i), TABLE_SEP)
-
         Dim c As Long
         For c = 0 To 2
             If c <= UBound(parts) Then
                 ws.Cells(r, startCol + c).Value = Trim(parts(c))
             End If
         Next c
-
         r = r + 1
     Next i
-
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "WriteResourcesToSheet"
-
+    
 End Sub
 
 '====================================================

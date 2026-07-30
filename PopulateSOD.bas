@@ -208,7 +208,6 @@ Public Sub PopulateSOD()
 
     ' ---- Finish ----
     wdApp.Visible = True
-
     Exit Sub
 
 ErrHandler:
@@ -326,8 +325,28 @@ Private Sub RenderDictionary( _
 
     colCount = 2
 
-    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount + 1, colCount)
+    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount, colCount)
     wdTable.Style = "Table Grid"
+    
+    ' Add blank row if all data rows were empty (for manual entry)
+    Dim hasContent As Boolean
+    hasContent = False
+    
+    Dim checkR As Long, checkC As Long
+    For checkR = 2 To rowCount
+        For checkC = 1 To colCount
+            If Trim(wdTable.cell(checkR, checkC).Range.Text) <> Chr(13) Then
+                hasContent = True
+                Exit For
+            End If
+        Next checkC
+        
+        If hasContent Then Exit For
+    Next checkR
+    
+    If Not hasContent Then
+        wdTable.Rows.Add
+    End If
 
     For r = 1 To rowCount
         For c = 1 To colCount
@@ -343,6 +362,7 @@ Private Sub RenderDictionary( _
                 wdTable.cell(r, c).Range.Font.Size = 11
                 If c = 1 Then
                     wdTable.cell(r, c).Range.ParagraphFormat.Alignment = wdAlignParagraphRight
+                    wdTable.cell(r, c).VerticalAlignment = 1  ' wdCellAlignVerticalCenter
                 End If
             End If
         Next c
@@ -534,8 +554,26 @@ Private Sub RenderAdditionalResources( _
     colCount = lastCol - firstCol + 1
 
     ' Create the table
-    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount + 1, colCount)
+    Set wdTable = wdDoc.Tables.Add(wdDoc.Content.Characters.Last, rowCount, colCount)
     wdTable.Style = "Table Grid"
+    
+    ' Add blank row if all data rows were empty (for manual entry)
+    Dim hasContent As Boolean
+    hasContent = False
+    Dim checkR As Long, checkC As Long
+    For checkR = 2 To rowCount
+        For checkC = 1 To colCount
+            If Trim(wdTable.cell(checkR, checkC).Range.Text) <> Chr(13) Then
+                hasContent = True
+                Exit For
+            End If
+        Next checkC
+        If hasContent Then Exit For
+    Next checkR
+    
+    If Not hasContent Then
+        wdTable.Rows.Add
+    End If
     
     For r = 1 To rowCount
         For c = 1 To colCount
@@ -779,8 +817,8 @@ End Sub
 Private Function AddOrGetStyle(ByVal wdDoc As Object, ByVal styleName As String) As Object
 
     Dim s As Object
-
     On Error Resume Next
+    
     Set s = wdDoc.Styles(styleName)
     On Error GoTo 0
 
