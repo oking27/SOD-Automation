@@ -2094,16 +2094,54 @@ End Sub
 
 Private Sub lstItems_Click()
     On Error GoTo ErrHandler
-
+    
     If mLoading Then Exit Sub
     
     If lstItems.ListIndex < 0 Then Exit Sub
+    
+    ' If in Item Edit mode, switching items is allowed
+    If mEditingItemIdx > 0 Then
+    
+        ' Capture the newly clicked index BEFORE any refresh
+        Dim newIdx As Long
+        newIdx = lstItems.ListIndex + 1
+        ' Always save current text when switching items (no prompt)
+        If Trim(txtItem.Text) <> "" Then
+            SaveEditedItemTextInPlace
+            mLoading = True
+            RefreshItemsDisplay
+            mLoading = False
+        End If
+        
+        ' Switch to newly selected item
+        mEditingItemIdx = newIdx
+        ' Guard against out of bounds
+        If mEditingItemIdx < 1 Or mEditingItemIdx > mSecItems(mCurrentSection).count Then
+            mEditingItemIdx = 1
+        End If
+        
+        ' Load new item text
+        Dim newText As String
+        If mSecHasSubItems(mCurrentSection) And InStr(mSecItems(mCurrentSection)(mEditingItemIdx), TABLE_SEP) > 0 Then
+            newText = Split(mSecItems(mCurrentSection)(mEditingItemIdx), TABLE_SEP)(0)
+        Else
+            newText = mSecItems(mCurrentSection)(mEditingItemIdx)
+        End If
+        
+        txtItem.Text = newText
+        mLoading = True
+        lstItems.ListIndex = mEditingItemIdx - 1
+        mLoading = False
+        
+        UpdateItemButtonsBasedOnFocus
+        Exit Sub
+        
+    End If
 
     CancelAnyActiveEditMode
     UpdateItemControls
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus
-
     If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then
         lstSubItems.Clear
         txtSubItem.Text = ""
@@ -2111,18 +2149,58 @@ Private Sub lstItems_Click()
         UpdateSubItemControls
         RefreshSubItems
     End If
-
+    
     Exit Sub
-
 ErrHandler:
     HandleFormError "lstItems_Click"
-
+    
 End Sub
 
 Private Sub lstSubItems_Click()
     On Error GoTo ErrHandler
 
     If mLoading Then Exit Sub
+    
+    If lstSubItems.ListIndex < 0 Then Exit Sub
+
+    ' If in SubItem Edit mode, switching sub-items is allowed
+    If mEditingSubIdx >= 0 Then
+
+        ' Capture newly clicked index BEFORE any refresh
+        Dim newIdx As Long
+        newIdx = lstSubItems.ListIndex
+
+        Dim parentIdx As Long
+        parentIdx = lstItems.ListIndex + 1
+
+        ' Always save current text when switching (no prompt)
+        If Trim(txtSubItem.Text) <> "" Then
+            SaveEditedSubItemTextInPlace parentIdx
+            mLoading = True
+            RefreshSubItems
+            mLoading = False
+        End If
+
+        ' Switch to newly selected sub-item
+        mEditingSubIdx = newIdx
+
+        ' Guard against out of bounds
+        Dim parts() As String
+        parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
+        If UBound(parts) >= 1 Then
+            Dim subs() As String
+            subs = Split(parts(1), LIST_SEP)
+            If mEditingSubIdx > UBound(subs) Then mEditingSubIdx = UBound(subs)
+            txtSubItem.Text = subs(mEditingSubIdx)
+        End If
+
+        mLoading = True
+        lstSubItems.ListIndex = mEditingSubIdx
+        mLoading = False
+
+        UpdateSubItemButtonsBasedOnFocus
+        Exit Sub
+    End If
 
     CancelAnyActiveEditMode
     UpdateItemButtonsBasedOnFocus
@@ -2266,66 +2344,63 @@ Private Sub btnEditItem_Click()
             Exit Sub
         End If
 
+        ' Save any pending rename for current item
+        If newItem <> "" Then
+            SaveEditedItemTextInPlace
+        End If
+        
         PushUndo
-        Dim newCol As New Collection
         
-        Dim i As Long
-        For i = 1 To mSecItems(mCurrentSection).count
-            If i = mEditingItemIdx Then
-                If mSecTypes(mCurrentSection) = TYPE_LIST And InStr(mSecItems(mCurrentSection)(i), TABLE_SEP) > 0 Then
-                    Dim parts() As String
-                    parts = Split(mSecItems(mCurrentSection)(i), TABLE_SEP)
-                    parts(0) = newItem
-                    newCol.Add Join(parts, TABLE_SEP)
-                Else
-                    newCol.Add newItem
-                End If
-            Else
-                newCol.Add mSecItems(mCurrentSection)(i)
-            End If
-        Next i
-        
-        Set mSecItems(mCurrentSection) = newCol
         Dim savedIdx As Long
         savedIdx = mEditingItemIdx
+        
         ExitItemEditMode
         RefreshItemsDisplay
+        
+        mLoading = True
         lstItems.ListIndex = savedIdx - 1
+        mLoading = False
         
         If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then RefreshSubItems
     Else
         Dim selIdx As Long
         selIdx = lstItems.ListIndex
-
+    
         If selIdx < 0 Then
             MsgBox "Select an item to edit.", vbExclamation
             Exit Sub
         End If
-
+    
         Dim itemIdx As Long
         itemIdx = selIdx + 1
+    
+        ' Take snapshot ONCE when entering edit mode
+        Set mEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
+        mEditSnapshotSec = mCurrentSection
+    
+        mEditingItemIdx = itemIdx
+    
+        ' Load current item text
         Dim current As String
         
-        If mSecTypes(mCurrentSection) = TYPE_LIST And InStr(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP) > 0 Then
+        If mSecHasSubItems(mCurrentSection) And InStr(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP) > 0 Then
             current = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)(0)
         Else
             current = mSecItems(mCurrentSection)(itemIdx)
         End If
-
+    
         txtItem.Text = current
         txtItem.SetFocus
-
-        Set mEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
-        mEditSnapshotSec = mCurrentSection
-
-        mEditingItemIdx = itemIdx
-        UpdateSubItemControls   ' lock out sub-item controls while editing parent
-
+    
         btnEditItem.Caption = "Confirm"
         btnAddItem.Caption = "Move Up"
         btnRemoveItem.Caption = "Move Down"
         btnCancel.Caption = "Cancel"
-        
+    
+        ' Visual indicator: Raised border
+        lstItems.SpecialEffect = 1  ' Raised
+    
+        UpdateSubItemControls
         UpdateItemButtonsBasedOnFocus
         UpdateSubItemButtonsBasedOnFocus
     End If
@@ -2345,7 +2420,9 @@ Private Sub ExitItemEditMode()
     btnRemoveItem.Caption = "– Remove"
     btnCancel.Caption = "Close Editor"
     txtItem.Text = ""
+    
     Set mEditSnapshot = Nothing
+    lstItems.SpecialEffect = 2
 
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus   ' restore sub-item controls
@@ -2357,7 +2434,9 @@ Private Sub CancelItemEditMode()
     If Not mEditSnapshot Is Nothing Then
         If mEditSnapshotSec = mCurrentSection Then
             Set mSecItems(mCurrentSection) = CloneCollection(mEditSnapshot)
+            
             RefreshItemsDisplay
+            
             If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then
                 lstSubItems.Clear
                 UpdateSubItemsLabel
@@ -2371,7 +2450,9 @@ Private Sub CancelItemEditMode()
     btnRemoveItem.Caption = "– Remove"
     btnCancel.Caption = "Close Editor"
     txtItem.Text = ""
+    
     Set mEditSnapshot = Nothing
+    lstItems.SpecialEffect = 2
 
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus
@@ -2720,10 +2801,14 @@ Private Sub btnEditSubItem_Click()
 
         mEditingSubIdx = subIdx
         
+        UpdateItemControls
+        
         btnEditSubItem.Caption = "Confirm"
         btnAddSubItem.Caption = "Move Up"
         btnRemoveSubItem.Caption = "Move Down"
         btnCancel.Caption = "Cancel"
+        
+        lstSubItems.SpecialEffect = 1
         
         UpdateItemButtonsBasedOnFocus
         UpdateSubItemButtonsBasedOnFocus
@@ -2744,8 +2829,11 @@ Private Sub ExitSubItemEditMode()
     btnRemoveSubItem.Caption = "– Remove"
     btnCancel.Caption = "Close Editor"
     txtSubItem.Text = ""
+    
     Set mSubEditSnapshot = Nothing
+    lstSubItems.SpecialEffect = 2
 
+    UpdateItemControls
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus
 
@@ -2768,7 +2856,9 @@ Private Sub CancelSubItemEditMode()
     btnRemoveSubItem.Caption = "– Remove"
     btnCancel.Caption = "Close Editor"
     txtSubItem.Text = ""
+    
     Set mSubEditSnapshot = Nothing
+    lstSubItems.SpecialEffect = 2
 
     UpdateItemControls
     UpdateSubItemControls
@@ -3533,6 +3623,8 @@ Private Sub ExitRowEditMode()
     txtResCol3.Text = ""
     txtDictCol1.Text = ""
     txtDictCol2.Text = ""
+    lstRows.SpecialEffect = 2
+    
     UpdateRowControls
 
 End Sub
@@ -3551,6 +3643,7 @@ Private Sub CancelRowEditMode()
     btnAddRow.Caption = "+ Add"
     btnRemoveRow.Caption = "– Remove"
     btnCancel.Caption = "Close Editor"
+    lstRows.SpecialEffect = 2
 
     If mSecTypes(mCurrentSection) = TYPE_TABLE Then
         ClearTableRowFields
@@ -3634,9 +3727,41 @@ Private Sub lstRows_Click()
     If mLoading Then Exit Sub
     
     If lstRows.ListIndex < 0 Then Exit Sub
-    
-    ' If in row edit/reorder mode, don't cancel the edit
-    If mEditingRowIdx > 0 Then Exit Sub
+
+    If mEditingRowIdx > 0 Then
+
+        ' Capture newly clicked index BEFORE any refresh
+        Dim newIdx As Long
+        newIdx = lstRows.ListIndex + 1
+
+        ' Always save current row when switching (no prompt)
+        If mSecTypes(mCurrentSection) = TYPE_TABLE Then
+            SaveTableRowFieldsInPlace mEditingRowIdx
+            mLoading = True
+            RefreshRowList mCurrentSection
+            mLoading = False
+        End If
+
+        ' Switch to newly selected row
+        mEditingRowIdx = newIdx
+
+        ' Guard against out of bounds
+        If mEditingRowIdx < 1 Or mEditingRowIdx > mSecItems(mCurrentSection).count Then
+            mEditingRowIdx = 1
+        End If
+
+        If mSecTypes(mCurrentSection) = TYPE_TABLE Then
+            LoadTableRowIntoFields mEditingRowIdx
+            RefreshRowEditorLabels
+        End If
+
+        mLoading = True
+        lstRows.ListIndex = mEditingRowIdx - 1
+        mLoading = False
+
+        UpdateRowReorderButtonStates
+        Exit Sub
+    End If
 
     CancelAnyActiveEditMode
     UpdateRowControls
@@ -3917,6 +4042,8 @@ Private Sub btnEditRow_Click()
             btnAddRow.Caption = "Move Up"
             btnRemoveRow.Caption = "Move Down"
             btnCancel.Caption = "Cancel"
+            
+            lstRows.SpecialEffect = 1
         End If
     ElseIf mSecTypes(mCurrentSection) = TYPE_TABLE Then
 
