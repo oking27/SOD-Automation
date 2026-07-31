@@ -275,7 +275,14 @@ ErrHandler:
 End Sub
 
 Private Sub lblSectionTitle_Click()
-
+    On Error GoTo ErrHandler
+    
+    lstRows.Height = 127
+    Exit Sub
+    
+ErrHandler:
+    HandleFormError "lblSectionTitle_Click"
+    
 End Sub
 
 Private Sub UserForm_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
@@ -362,17 +369,20 @@ End Sub
 Private Sub UpdateRowButtonsBasedOnContent()
     On Error GoTo ErrHandler
     
-    If mSecTypes(mCurrentSection) <> TYPE_TABLE Then Exit Sub
+    Dim isTableLike As Boolean
+    isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
+                   mSecTypes(mCurrentSection) = TYPE_RESOURCES Or _
+                   mSecTypes(mCurrentSection) = TYPE_DICTIONARY)
+
+    If Not isTableLike Then Exit Sub
     If mEditingRowIdx > 0 Then Exit Sub
     
     ' Since dynamic textbox Change events don't bubble to the frame,
-    ' just always enable Add for Tables - validation happens on click instead
+    ' just always enable Add for table-like sections - validation happens on click instead
     btnAddRow.Enabled = True
     Exit Sub
-
 ErrHandler:
     HandleFormError "UpdateRowButtonsBasedOnContent"
-
 End Sub
 
 Private Sub InitSections()
@@ -544,9 +554,9 @@ Private Sub PopulateGroupDropdown()
 
     cboGroup.Clear
     ' TODO: replace with your real Group options
-    cboGroup.AddItem "Group A"
-    cboGroup.AddItem "Group B"
-    cboGroup.AddItem "Group C"
+    cboGroup.AddItem "Project Controls & Processes"
+    cboGroup.AddItem "Safety"
+    cboGroup.AddItem "Estimating"
     
     Dim groupIdx As Long
     groupIdx = FindSection(SEC_GROUP)
@@ -2895,12 +2905,11 @@ End Sub
 
 Private Sub ShowTableSection(ByVal idx As Long)
     On Error GoTo ErrHandler
-
+    
     lblColCount.Visible = True
     spnColCount.Visible = True
     lblColCountValue.Visible = True
     chkHasHeader.Visible = True
-
     Dim colCount As Long
     
     If mSecCols(idx) <> "" Then
@@ -2909,46 +2918,41 @@ Private Sub ShowTableSection(ByVal idx As Long)
         colCount = 1
         mSecCols(idx) = "col1"
     End If
-
+    
     mLoading = True
     spnColCount.Value = colCount
     lblColCountValue.Caption = CStr(colCount)
     chkHasHeader.Value = mSecHasHeader(idx)
     mLoading = False
-
+    ' Genuine custom Tables: spinner and header checkbox always fully editable
+    spnColCount.Enabled = True
+    chkHasHeader.Enabled = True
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
     btnEditRow.Visible = True
     fraRowEditor.Visible = True
-
-    RefreshRowList idx
     BuildRowEditorFields
+    RefreshRowList idx
     UpdateRowButtonsBasedOnContent
     Exit Sub
-
+    
 ErrHandler:
     mLoading = False
     HandleFormError "ShowTableSection"
-
+    
 End Sub
 
 Private Sub BuildRowEditorFields()
     On Error GoTo ErrHandler
-
     ClearRowEditor
-
     If mSecCols(mCurrentSection) = "" Then Exit Sub
-
     Dim cols() As String
     cols = Split(mSecCols(mCurrentSection), LIST_SEP)
-
     Dim i As Long
     Dim topPos As Long
     topPos = 12
-
     For i = 0 To UBound(cols)
-
         Dim lbl As MSForms.Label
         Set lbl = fraRowEditor.Controls.Add("Forms.Label.1", "lbl_col_" & i)
         lbl.Tag = "dynamic"
@@ -2957,7 +2961,6 @@ Private Sub BuildRowEditorFields()
         lbl.Width = 70
         lbl.Height = 20
         lbl.TextAlign = 3   ' fmTextAlignRight
-
         If mSecHasHeader(mCurrentSection) And mEditingRowIdx = 1 Then
             lbl.Caption = "Header " & (i + 1) & ":"
         ElseIf mSecHasHeader(mCurrentSection) Then
@@ -2965,7 +2968,6 @@ Private Sub BuildRowEditorFields()
         Else
             lbl.Caption = "Column " & (i + 1) & ":"
         End If
-
         Dim txt As MSForms.TextBox
         Set txt = fraRowEditor.Controls.Add("Forms.TextBox.1", "txt_col_" & i)
         txt.Tag = "dynamic"
@@ -2975,38 +2977,74 @@ Private Sub BuildRowEditorFields()
         txt.Height = 20
         topPos = topPos + 28
     Next i
-
     fraRowEditor.ScrollBars = 2
     fraRowEditor.ScrollHeight = topPos + 10
+    
     If fraRowEditor.ScrollHeight < 40 Then fraRowEditor.ScrollHeight = 40
+    
+    ' TEMP DEBUG
+Debug.Print "fraRowEditor.ScrollHeight=" & fraRowEditor.ScrollHeight & _
+            "  lstRows.Height=" & lstRows.Height & _
+            "  lstRows.Top=" & lstRows.Top
+            
+    ' Force lstRows back to its intended fixed height, since fraRowEditor's
+' growing ScrollHeight appears to drag lstRows.Height along with it
+lstRows.Height = 124.45   ' ? use whatever your original/intended height is
+
+    ' Set up lstRows as a real multi-column grid to match this column count
+    Dim colCount As Long
+    colCount = UBound(cols) + 1
+
+    lstRows.ColumnCount = colCount
+
+    Dim widthStr As String
+    Dim visibleCols As Long
+    Dim widthEach As Single
+    
+    ' Cap the divisor at 4 - columns beyond that stay the same width
+    ' as a 4-column split, and require horizontal scrolling to reach
+    If colCount <= 1 Then
+        visibleCols = 1
+    ElseIf colCount > 4 Then
+        visibleCols = 4
+    Else
+        visibleCols = colCount
+    End If
+    
+    widthEach = lstRows.Width / visibleCols
+    
+    Dim c As Long
+    For c = 1 To colCount
+        If c = 1 Then
+            widthStr = widthEach & " pt"
+        Else
+            widthStr = widthStr & ";" & widthEach & " pt"
+        End If
+    Next c
+    lstRows.ColumnWidths = widthStr
 
     Exit Sub
-
 ErrHandler:
     HandleFormError "BuildRowEditorFields"
-
 End Sub
 
 Private Sub chkHasHeader_Click()
     On Error GoTo ErrHandler
     
     If mLoading Then Exit Sub
-
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
                    mSecTypes(mCurrentSection) = TYPE_RESOURCES Or _
                    mSecTypes(mCurrentSection) = TYPE_DICTIONARY)
-
     If Not isTableLike Then Exit Sub
-
     mSecHasHeader(mCurrentSection) = chkHasHeader.Value
-    RefreshRowList mCurrentSection      ' updates  « » indicator
-    RefreshRowEditorLabels
 
+    BuildRowEditorFields                ' ? ADD: re-assert ColumnWidths BEFORE RefreshRowList touches .List
+    RefreshRowList mCurrentSection      ' updates « » indicator
+    RefreshRowEditorLabels
     If mEditingRowIdx > 0 Then
         UpdateRowReorderButtonStates    ' re-evaluate Move Up/Down for the row being edited
     End If
-
     Exit Sub
     
 ErrHandler:
@@ -3142,14 +3180,13 @@ Private Sub spnColCount_Change()
         TrimRowsToColumnCount mCurrentSection, newCount
     End If
 
-    RefreshRowList mCurrentSection
-
     mEditingRowIdx = 0
     btnAddRow.Caption = "+ Add"
     btnRemoveRow.Caption = "– Remove"
     btnEditRow.Caption = "Edit"
 
     BuildRowEditorFields
+    RefreshRowList mCurrentSection
     Exit Sub
 
 ErrHandler:
@@ -3378,25 +3415,22 @@ End Sub
 
 Private Sub ShowResourcesSection(ByVal idx As Long)
     On Error GoTo ErrHandler
-
+    
     ' Resources is a restricted Table: 3 columns, header always on
-    If mSecCols(idx) = "" Then mSecCols(idx) = "col1~col2~col3"
-
+    If mSecCols(idx) = "" Then mSecCols(idx) = "col1" & LIST_SEP & "col2" & LIST_SEP & "col3"
     lblColCount.Visible = True
     spnColCount.Visible = True
     lblColCountValue.Visible = True
     chkHasHeader.Visible = True
-
+    
     Dim colCount As Long
     colCount = 3
-
     mLoading = True
     spnColCount.Value = colCount
     lblColCountValue.Caption = CStr(colCount)
     mSecHasHeader(idx) = True   ' Resources always has header
     chkHasHeader.Value = True
     mLoading = False
-
     ' Restrict spinner and checkbox unless Dev Mode
     If mDeveloperMode Then
         spnColCount.Enabled = True
@@ -3405,49 +3439,46 @@ Private Sub ShowResourcesSection(ByVal idx As Long)
         spnColCount.Enabled = False
         chkHasHeader.Enabled = False
     End If
-
+    
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
     btnEditRow.Visible = True
     fraRowEditor.Visible = True
-
+    
     ' Ensure header row exists with correct labels
     If mSecItems(idx).count = 0 Then
         mSecItems(idx).Add SEC_RESOURCES_COL1 & TABLE_SEP & SEC_RESOURCES_COL2 & TABLE_SEP & SEC_RESOURCES_COL3
     End If
-
-    RefreshRowList idx
+    
     BuildRowEditorFields
+    RefreshRowList idx
     Exit Sub
-
+    
 ErrHandler:
     mLoading = False
     HandleFormError "ShowResourcesSection"
-
+    
 End Sub
 
 Private Sub ShowDictionarySection(ByVal idx As Long)
     On Error GoTo ErrHandler
-
+    
     ' Dictionary is a restricted Table: 2 columns, header always on
-    If mSecCols(idx) = "" Then mSecCols(idx) = "col1~col2"
-
+    If mSecCols(idx) = "" Then mSecCols(idx) = "col1" & LIST_SEP & "col2"
     lblColCount.Visible = True
     spnColCount.Visible = True
     lblColCountValue.Visible = True
     chkHasHeader.Visible = True
-
+    
     Dim colCount As Long
     colCount = 2
-
     mLoading = True
     spnColCount.Value = colCount
     lblColCountValue.Caption = CStr(colCount)
     mSecHasHeader(idx) = True   ' Dictionary always has header
     chkHasHeader.Value = True
     mLoading = False
-
     ' Restrict spinner and checkbox unless Dev Mode
     If mDeveloperMode Then
         spnColCount.Enabled = True
@@ -3456,26 +3487,25 @@ Private Sub ShowDictionarySection(ByVal idx As Long)
         spnColCount.Enabled = False
         chkHasHeader.Enabled = False
     End If
-
+    
     lstRows.Visible = True
     btnAddRow.Visible = True
     btnRemoveRow.Visible = True
     btnEditRow.Visible = True
     fraRowEditor.Visible = True
-
+    
     ' Ensure header row exists with correct labels
     If mSecItems(idx).count = 0 Then
         mSecItems(idx).Add SEC_DICT_COL1 & TABLE_SEP & SEC_DICT_COL2
     End If
-
-    RefreshRowList idx
     BuildRowEditorFields
+    RefreshRowList idx
     Exit Sub
-
+    
 ErrHandler:
     mLoading = False
     HandleFormError "ShowDictionarySection"
-
+    
 End Sub
 
 Private Function ResourceColumnLabel(ByVal colIdx As Long) As String
@@ -3534,32 +3564,51 @@ Private Sub RefreshRowList(ByVal idx As Long)
     On Error GoTo ErrHandler
     
     lstRows.Clear
-    
+
+    Dim rowCount As Long
+    rowCount = mSecItems(idx).count
+
+    If rowCount = 0 Then
+        UpdateRowControls
+        Exit Sub
+    End If
+
+    Dim colCount As Long
+    If mSecCols(idx) <> "" Then
+        colCount = UBound(Split(mSecCols(idx), LIST_SEP)) + 1
+    Else
+        colCount = 1
+    End If
+
+    lstRows.ColumnCount = colCount
+
+    Dim gridData() As String
+    ReDim gridData(1 To rowCount, 0 To colCount - 1)
+
     Dim i As Long
-    For i = 1 To mSecItems(idx).count
+    For i = 1 To rowCount
         Dim parts() As String
         parts = Split(mSecItems(idx)(i), TABLE_SEP)
-        Dim display As String
-        display = ""
+
         Dim j As Long
-        For j = 0 To UBound(parts)
-            Dim val As String
-            val = Trim(parts(j))
-            If j = 0 Then
-                display = val
+        For j = 0 To colCount - 1
+            If j <= UBound(parts) Then
+                gridData(i, j) = Trim(parts(j))
             Else
-                display = display & "  |  " & val
+                gridData(i, j) = ""
             End If
         Next j
-        
-        If Replace(display, "|", "") = "" Then display = Replace(display, "|", "") & "(empty row " & i & ")"
-        
-        ' Add « » indicator if this is row 1 and header checkbox is checked
+
+        ' Add « » indicator around column 0 only, if this is row 1 and header checkbox is checked
+        ' Add • prefix to every column, if this is row 1 and header checkbox is checked
         If i = 1 And mSecHasHeader(idx) Then
-            display = "« " & display & " »"
+            For j = 0 To colCount - 1
+                gridData(i, j) = "• " & gridData(i, j)
+            Next j
         End If
-        lstRows.AddItem display
     Next i
+
+    lstRows.List = gridData
     
     If mSecTypes(idx) = TYPE_TABLE Then
     
@@ -4947,82 +4996,63 @@ Private Sub WriteDictionaryToSheet(ByVal ws As Worksheet, _
                                     ByVal secIdx As Long, _
                                     ByVal startCol As Long)
     On Error GoTo ErrHandler
-
+    
     ws.Cells(1, startCol).Value = mSecNames(secIdx)       ' "Dictionary"
     ws.Cells(1, startCol + 1).Value = "Table2"
 
-    ws.Cells(2, startCol).Value = SEC_DICT_COL1           ' "Term"
-    ws.Cells(2, startCol + 1).Value = SEC_DICT_COL2       ' "Definition"
-
     Dim r As Long
-    r = 3   ' actual data starts here, since row 2 is the header label row
+    r = 2   ' data (including header row) starts here now
 
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
         Dim parts() As String
         parts = Split(mSecItems(secIdx)(i), TABLE_SEP)
-
+        
         Dim c As Long
         For c = 0 To 1
             If c <= UBound(parts) Then
                 ws.Cells(r, startCol + c).Value = Trim(parts(c))
             End If
         Next c
-
         r = r + 1
     Next i
-
+    
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "WriteDictionaryToSheet"
-
+    
 End Sub
-
-'====================================================
-' WriteResourcesToSheet
-' Same idea as WriteDictionaryToSheet, but always exactly
-' 3 columns: Resource Type, List or Document Link,
-' Document Number.
-'====================================================
 
 Private Sub WriteResourcesToSheet(ByVal ws As Worksheet, _
                                     ByVal secIdx As Long, _
                                     ByVal startCol As Long)
     On Error GoTo ErrHandler
-
+    
     ws.Cells(1, startCol).Value = mSecNames(secIdx)       ' "Additional Resources"
     ws.Cells(1, startCol + 1).Value = "Table2"
     ws.Cells(1, startCol + 2).Value = "Table3"
 
-    ws.Cells(2, startCol).Value = SEC_RESOURCES_COL1
-    ws.Cells(2, startCol + 1).Value = SEC_RESOURCES_COL2
-    ws.Cells(2, startCol + 2).Value = SEC_RESOURCES_COL3
-
     Dim r As Long
-    r = 3   ' actual data starts here, since row 2 is the header label row
+    r = 2   ' data (including header row) starts here now
 
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
-
         Dim parts() As String
         parts = Split(mSecItems(secIdx)(i), TABLE_SEP)
-
         Dim c As Long
         For c = 0 To 2
             If c <= UBound(parts) Then
                 ws.Cells(r, startCol + c).Value = Trim(parts(c))
             End If
         Next c
-
         r = r + 1
     Next i
-
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "WriteResourcesToSheet"
-
+    
 End Sub
 
 '====================================================
