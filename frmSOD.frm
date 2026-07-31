@@ -182,10 +182,20 @@ End Sub
 
 Private Sub fraRowEditor_Click()
 
+    lstRows.Height = 127
+
+End Sub
+
+Private Sub lblColCount_Click()
+
+    lstRows.Height = 127
+
 End Sub
 
 Private Sub lblSectionHelp_Click()
     On Error GoTo ErrHandler
+    
+    lstRows.Height = 127
     
     Dim helpText As String
     
@@ -275,13 +285,6 @@ ErrHandler:
 End Sub
 
 Private Sub lblSectionTitle_Click()
-    On Error GoTo ErrHandler
-    
-    lstRows.Height = 127
-    Exit Sub
-    
-ErrHandler:
-    HandleFormError "lblSectionTitle_Click"
     
 End Sub
 
@@ -1107,10 +1110,12 @@ End Sub
 
 Private Sub btnEditSection_Click()
     On Error GoTo ErrHandler
+    
     If mAddingSection Then
         CreateNewSection TYPE_LIST
         Exit Sub
     End If
+    
     If mEditingSectionIdx > 0 Then
         ' CONFIRM the rename
         Dim newName As String
@@ -1134,6 +1139,7 @@ Private Sub btnEditSection_Click()
         txtSectionName.Visible = False
         lstSections.SpecialEffect = 3   ' Etched (back to normal)
         lstSections.ListIndex = savedIdx - 1
+        
         If savedIdx = mCurrentSection Then
             lblSectionTitle.Caption = newName
         End If
@@ -2007,7 +2013,6 @@ Private Sub lstItems_Click()
         
         UpdateItemButtonsBasedOnFocus
         Exit Sub
-        
     End If
 
     CancelAnyActiveEditMode
@@ -2883,6 +2888,7 @@ Private Sub RefreshRowsAfterReorder()
     
     mLoading = True
     lstRows.ListIndex = mEditingRowIdx - 1
+    lstRows.Height = 127   ' re-assert AFTER ListIndex, since that assignment also re-triggers growth
     mLoading = False
     Exit Sub
 
@@ -3031,6 +3037,8 @@ End Sub
 Private Sub chkHasHeader_Click()
     On Error GoTo ErrHandler
     
+    lstRows.Height = 127   ' safety net - see chat notes re: ColumnCount/ColumnWidths growth bug
+
     If mLoading Then Exit Sub
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
@@ -3123,6 +3131,8 @@ End Function
 
 Private Sub spnColCount_Change()
     On Error GoTo ErrHandler
+    
+    lstRows.Height = 127   ' safety net - see chat notes re: ColumnCount/ColumnWidths growth bug
 
     If mLoading Then Exit Sub
     
@@ -3529,6 +3539,7 @@ Private Sub ExitRowEditMode()
     lstRows.SpecialEffect = 3
     
     UpdateRowControls
+    UpdateRowButtonsBasedOnContent
 
 End Sub
 
@@ -3609,6 +3620,7 @@ Private Sub RefreshRowList(ByVal idx As Long)
     Next i
 
     lstRows.List = gridData
+    lstRows.Height = 127   ' safety net - see chat notes re: ColumnCount/ColumnWidths growth bug
     
     If mSecTypes(idx) = TYPE_TABLE Then
     
@@ -3648,35 +3660,27 @@ Private Sub lstRows_Click()
                    mSecTypes(mCurrentSection) = TYPE_DICTIONARY)
 
     If mEditingRowIdx > 0 Then
-        ' Capture newly clicked index BEFORE any refresh
         Dim newIdx As Long
         newIdx = lstRows.ListIndex + 1
-
-        ' Always save current row when switching (no prompt)
+    
         If isTableLike Then
             SaveTableRowFieldsInPlace mEditingRowIdx
-            mLoading = True
-            RefreshRowList mCurrentSection
-            mLoading = False
+            ' NO RefreshRowList here - the grid doesn't need rebuilding,
+            ' only the row's underlying string data changed, which
+            ' doesn't need to visually redraw to switch selection
         End If
-
-        ' Switch to newly selected row
+    
         mEditingRowIdx = newIdx
-
-        ' Guard against out of bounds
+    
         If mEditingRowIdx < 1 Or mEditingRowIdx > mSecItems(mCurrentSection).count Then
             mEditingRowIdx = 1
         End If
-
+    
         If isTableLike Then
             LoadTableRowIntoFields mEditingRowIdx
             RefreshRowEditorLabels
         End If
-
-        mLoading = True
-        lstRows.ListIndex = mEditingRowIdx - 1
-        mLoading = False
-
+    
         UpdateRowReorderButtonStates
         Exit Sub
     End If
@@ -3728,6 +3732,8 @@ End Sub
 
 Private Sub btnAddRow_Click()
     On Error GoTo ErrHandler
+    
+    lstRows.Height = 127   ' safety net - see chat notes re: ColumnCount/ColumnWidths growth bug
 
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
@@ -3786,6 +3792,8 @@ End Sub
 
 Private Sub btnRemoveRow_Click()
     On Error GoTo ErrHandler
+    
+    lstRows.Height = 127
 
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
@@ -3863,6 +3871,8 @@ End Sub
 
 Private Sub btnEditRow_Click()
     On Error GoTo ErrHandler
+    
+    lstRows.Height = 127
 
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
@@ -3934,6 +3944,8 @@ End Sub
 
 Private Sub btnRowUp_Click()
     On Error GoTo ErrHandler
+    
+    lstRows.Height = 127
 
     Dim selIdx As Long
     selIdx = lstRows.ListIndex
@@ -3956,6 +3968,8 @@ End Sub
 
 Private Sub btnRowDown_Click()
     On Error GoTo ErrHandler
+    
+    lstRows.Height = 127
 
     Dim selIdx As Long
     selIdx = lstRows.ListIndex
