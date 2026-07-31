@@ -288,14 +288,6 @@ Private Sub lblSectionTitle_Click()
     
 End Sub
 
-Private Sub UserForm_KeyDown(ByVal KeyCode As MSForms.ReturnInteger, ByVal Shift As Integer)
-    ' Ctrl+Shift+D to toggle Developer Mode button visibility
-    If KeyCode = 68 And Shift = 3 Then  ' 68 = D key, 3 = Ctrl+Shift
-        btnDevMode.Visible = Not btnDevMode.Visible
-    End If
-    
-End Sub
-
 Private Sub DebugLog(ByVal message As String)
 
     If mDeveloperMode Then
@@ -304,12 +296,8 @@ Private Sub DebugLog(ByVal message As String)
     
 End Sub
 
-Private Sub TestAddButton()
-
-    mItemTextHasFocus = True
-    UpdateItemButtonsBasedOnFocus
-    MsgBox "btnAddItem.Enabled: " & btnAddItem.Enabled
-    
+Private Sub lblUpdate_Click()
+    lstRows.Height = 127
 End Sub
 
 '====================================================
@@ -384,8 +372,45 @@ Private Sub UpdateRowButtonsBasedOnContent()
     ' just always enable Add for table-like sections - validation happens on click instead
     btnAddRow.Enabled = True
     Exit Sub
+    
 ErrHandler:
     HandleFormError "UpdateRowButtonsBasedOnContent"
+    
+End Sub
+
+Private Sub UpdateSingleRowDisplay(ByVal rowNum As Long, ByVal rowStr As String, ByVal isHeaderRow As Boolean)
+    ' Updates just one row's cells in lstRows, without reassigning
+    ' the whole .List array - avoids the ColumnCount/.List-triggered
+    ' auto-resize quirk entirely, since we're not touching .List at all
+    
+    On Error GoTo ErrHandler
+
+    Dim parts() As String
+    parts = Split(rowStr, TABLE_SEP)
+
+    Dim colCount As Long
+    colCount = lstRows.ColumnCount
+Debug.Print "UpdateSingleRowDisplay: rowNum=" & rowNum & " colCount=" & colCount & " rowStr=" & rowStr
+    Dim j As Long
+    For j = 0 To colCount - 1
+        Dim val As String
+        If j <= UBound(parts) Then
+            val = Trim(parts(j))
+        Else
+            val = ""
+        End If
+
+        If isHeaderRow Then val = "• " & val
+
+        ' lstRows.List(rowIndex, columnIndex) - rowIndex is 0-based here
+        lstRows.List(rowNum - 1, j) = val
+    Next j
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateSingleRowDisplay"
+
 End Sub
 
 Private Sub InitSections()
@@ -530,6 +555,7 @@ End Function
 
 Private Sub UpdateFormCaption()
     On Error GoTo ErrHandler
+    
     Dim titleSecIdx As Long
     Dim titleText As String
     titleSecIdx = FindSection(SEC_TITLE)
@@ -575,6 +601,7 @@ ErrHandler:
 End Sub
 
 Public Sub OpenSODEditor()
+
     frmSOD.Show
     
 End Sub
@@ -3665,9 +3692,10 @@ Private Sub lstRows_Click()
     
         If isTableLike Then
             SaveTableRowFieldsInPlace mEditingRowIdx
-            ' NO RefreshRowList here - the grid doesn't need rebuilding,
-            ' only the row's underlying string data changed, which
-            ' doesn't need to visually redraw to switch selection
+            ' Update just the row we're leaving, so its display reflects
+            ' any edits - no full rebuild needed
+            UpdateSingleRowDisplay mEditingRowIdx, mSecItems(mCurrentSection)(mEditingRowIdx), _
+                                   (mEditingRowIdx = 1 And mSecHasHeader(mCurrentSection))
         End If
     
         mEditingRowIdx = newIdx
@@ -3733,34 +3761,24 @@ End Sub
 Private Sub btnAddRow_Click()
     On Error GoTo ErrHandler
     
-    lstRows.Height = 127   ' safety net - see chat notes re: ColumnCount/ColumnWidths growth bug
-
+    lstRows.Height = 127
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
                    mSecTypes(mCurrentSection) = TYPE_RESOURCES Or _
                    mSecTypes(mCurrentSection) = TYPE_DICTIONARY)
-
     If Not isTableLike Then Exit Sub
-
     If mEditingRowIdx > 0 Then
-        ' EDIT MODE: this button is "Move Up"
-        ' Cannot move into row 1 if it's a locked header
         If mEditingRowIdx <= 1 Then Exit Sub
         If mEditingRowIdx = 2 And mSecHasHeader(mCurrentSection) Then Exit Sub
-
         SaveTableRowFieldsInPlace mEditingRowIdx
         PushUndo
-
         Set mSecItems(mCurrentSection) = _
             SwapCollectionItems(mSecItems(mCurrentSection), mEditingRowIdx, mEditingRowIdx - 1)
-
         mEditingRowIdx = mEditingRowIdx - 1
-
         mLoading = True
         RefreshRowList mCurrentSection
         lstRows.ListIndex = mEditingRowIdx - 1
         mLoading = False
-
         LoadTableRowIntoFields mEditingRowIdx
         UpdateRowReorderButtonStates
     Else
@@ -3768,26 +3786,19 @@ Private Sub btnAddRow_Click()
             MsgBox "Set a column count before adding rows.", vbExclamation
             Exit Sub
         End If
-
         Dim newRow As String
         newRow = ReadTableRowFields()
-
         If Replace(newRow, TABLE_SEP, "") = "" Then
             MsgBox "Enter at least one field before adding.", vbExclamation
             Exit Sub
         End If
-
         mSecItems(mCurrentSection).Add newRow
         RefreshRowList mCurrentSection
-
         ClearTableRowFields
     End If
-
     Exit Sub
-
 ErrHandler:
     HandleFormError "btnAddRow_Click"
-
 End Sub
 
 Private Sub btnRemoveRow_Click()
