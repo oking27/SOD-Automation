@@ -63,19 +63,6 @@ Private Const LOGO_HEIGHT_FIRST_IN As Single = 0.8
 Private Const LOGO_WIDTH_OTHER_IN As Single = 1.5
 Private Const LOGO_HEIGHT_OTHER_IN As Single = 0.5
 
-Sub TestColumnListBox()
-
-    Dim testArr(1 To 2, 0 To 2) As String
-    testArr(1, 0) = "1": testArr(1, 1) = "": testArr(1, 2) = "3"
-    testArr(2, 0) = "A": testArr(2, 1) = "B": testArr(2, 2) = "C"
-
-    frmSOD.lstRows.ColumnCount = 3
-    frmSOD.lstRows.ColumnWidths = "80 pt;80 pt;80 pt"
-    frmSOD.lstRows.List = testArr
-
-    frmSOD.Show
-End Sub
-
 '====================================================
 ' PUBLIC ENTRY POINTS
 '====================================================
@@ -248,6 +235,62 @@ Private Function GetLogoPath() As String
     GetLogoPath = Trim(ThisWorkbook.Names("SOD_LogoPath").RefersToRange.Value)
     On Error GoTo 0
     
+End Function
+
+Private Function ExportShapeToTempFile(ByVal shp As Shape) As String
+    On Error GoTo ErrHandler
+
+    Dim tempPath As String
+    Dim chtObj As ChartObject
+    Dim ws As Worksheet
+
+    Set ws = shp.Parent
+    tempPath = Environ$("TEMP") & "\SOD_Logo_" & Format(Now, "yyyymmddhhnnss") & ".png"
+
+    shp.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+    DoEvents
+
+    Set chtObj = ws.ChartObjects.Add(0, 0, shp.Width, shp.Height)
+    chtObj.Chart.Paste
+    DoEvents
+
+    If chtObj.Chart.Shapes.count = 0 Then
+        chtObj.Delete
+        ExportShapeToTempFile = ""
+        Exit Function
+    End If
+
+    ' Strip the chart's default white fill/border so the PNG background is transparent
+    With chtObj.Chart.ChartArea.Format
+        .Fill.Visible = msoFalse
+        .Line.Visible = msoFalse
+    End With
+
+    chtObj.Chart.Export fileName:=tempPath, FilterName:="PNG"
+    chtObj.Delete
+
+    ExportShapeToTempFile = tempPath
+    Exit Function
+
+ErrHandler:
+    ExportShapeToTempFile = ""
+    
+End Function
+
+Private Function GetEmbeddedLogoPath() As String
+    On Error GoTo ErrHandler
+
+    Dim ws As Worksheet
+    Dim shp As Shape
+
+    Set ws = ThisWorkbook.Worksheets("Assets")   ' <- change if you used a different sheet name
+    Set shp = ws.Shapes("imgLogo")               ' <- must match the name you gave it in step 3
+
+    GetEmbeddedLogoPath = ExportShapeToTempFile(shp)
+    Exit Function
+
+ErrHandler:
+    GetEmbeddedLogoPath = ""   ' embedded logo missing - caller falls back
 End Function
 
 Private Function RenderSpecialSection( _
@@ -932,6 +975,11 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
     Dim todayStr As String
     Dim usableWidth As Single
     Dim logoShape As Object
+    
+    Dim resolvedLogoPath As String
+    resolvedLogoPath = GetEmbeddedLogoPath()
+    
+    If resolvedLogoPath = "" Then resolvedLogoPath = LOGO_PATH
 
     todayStr = Format(Now, "mm/dd/yyyy")
 
@@ -949,9 +997,9 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
     Set rng = hdr.Range
     rng.Text = ""
     
-    If LOGO_PATH <> "" And Dir(LOGO_PATH) <> "" Then
+    If resolvedLogoPath <> "" And Dir(resolvedLogoPath) <> "" Then
         Set logoShape = hdr.Range.InlineShapes.AddPicture( _
-            fileName:=LOGO_PATH, _
+            fileName:=resolvedLogoPath, _
             LinkToFile:=False, _
             SaveWithDocument:=True, _
             Range:=hdr.Range)
@@ -959,7 +1007,6 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
         logoShape.Height = wdDoc.Application.InchesToPoints(LOGO_HEIGHT_FIRST_IN)
         logoShape.LockAspectRatio = False
     End If
-    
     
     ' Tagline always renders, on its own line after the logo (or alone if no logo)
     hdr.Range.InsertAfter vbCr & HEADER_TEXT
@@ -1041,9 +1088,9 @@ Private Sub BuildHeadersFooters(ByVal wdDoc As Object, ByVal DocTitle As String,
     Set rng = hdr.Range
     rng.Text = ""
     
-    If LOGO_PATH <> "" And Dir(LOGO_PATH) <> "" Then
+    If resolvedLogoPath <> "" And Dir(resolvedLogoPath) <> "" Then
         Set logoShape = hdr.Range.InlineShapes.AddPicture( _
-            fileName:=LOGO_PATH, _
+            fileName:=resolvedLogoPath, _
             LinkToFile:=False, _
             SaveWithDocument:=True, _
             Range:=hdr.Range)
