@@ -108,6 +108,7 @@ Private mRowEditSnapshot As Collection
 Private mRowEditSnapshotSec As Long
 
 Private mDeveloperMode As Boolean      ' when True, removes guardrails and enables debug output
+Private mSkipConfirmPrompts As Boolean   ' suppresses nested duplicate prompts when the caller already confirmed
 
 '====================================================
 ' CENTRAL ERROR HANDLER
@@ -457,6 +458,66 @@ ErrHandler:
 
 End Sub
 
+Private Function BuildUnconfirmedPromptText() As String
+    On Error GoTo ErrHandler
+
+    If mEditingItemIdx > 0 Then
+        BuildUnconfirmedPromptText = "You're still editing an item in """ & mSecNames(mCurrentSection) & """." & vbCrLf & vbCrLf & _
+            "Do you want to confirm your changes? Otherwise they will be discarded."
+        Exit Function
+    End If
+
+    If mEditingSubIdx >= 0 Then
+        BuildUnconfirmedPromptText = "You're still editing a sub-item in """ & mSecNames(mCurrentSection) & """." & vbCrLf & vbCrLf & _
+            "Do you want to confirm your changes? Otherwise they will be discarded."
+        Exit Function
+    End If
+
+    If mEditingRowIdx > 0 Then
+        BuildUnconfirmedPromptText = "You're still editing a row in """ & mSecNames(mCurrentSection) & """." & vbCrLf & vbCrLf & _
+            "Do you want to confirm your changes? Otherwise they will be discarded."
+        Exit Function
+    End If
+
+    Select Case mSecTypes(mCurrentSection)
+
+        Case TYPE_LIST
+            If Len(Trim(txtItem.Text)) > 0 Then
+                BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtItem.Text) & """ to """ & mSecNames(mCurrentSection) & """?" & vbCrLf & vbCrLf & _
+                    "Otherwise it will be discarded."
+                Exit Function
+
+            ElseIf mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
+                Dim parentDisplay As String
+                If lstItems.ListIndex >= 0 Then
+                    parentDisplay = lstItems.List(lstItems.ListIndex)
+                Else
+                    parentDisplay = "(no item selected)"
+                End If
+                BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtSubItem.Text) & """ to """ & parentDisplay & """?" & vbCrLf & vbCrLf & _
+                    "Otherwise it will be discarded."
+                Exit Function
+            End If
+
+        Case TYPE_TABLE, TYPE_RESOURCES, TYPE_DICTIONARY
+            BuildUnconfirmedPromptText = "Do you want to add this row to """ & mSecNames(mCurrentSection) & """?" & vbCrLf & vbCrLf & _
+                "Otherwise it will be discarded."
+            Exit Function
+
+    End Select
+
+    ' Fallback - shouldn't normally be reached if HasUnconfirmedContent() said True
+    BuildUnconfirmedPromptText = "You have unconfirmed changes in this section." & vbCrLf & vbCrLf & _
+        "Do you want to confirm and add them before continuing? Otherwise they will be discarded."
+
+    Exit Function
+
+ErrHandler:
+    HandleFormError "BuildUnconfirmedPromptText"
+    BuildUnconfirmedPromptText = "You have unconfirmed changes. Confirm before continuing?"
+
+End Function
+
 Private Function GetSectionHelpText(ByVal secName As String, ByVal secType As String) As String
 
     Select Case LCase(Trim(secName))
@@ -592,12 +653,6 @@ Private Sub PopulateGroupDropdown()
 ErrHandler:
     HandleFormError "PopulateGroupDropdown"
 
-End Sub
-
-Public Sub OpenSODEditor()
-
-    frmSOD.Show
-    
 End Sub
 
 '====================================================
@@ -925,6 +980,57 @@ ErrHandler:
 
 End Sub
 
+Private Function ConfirmPendingChanges() As Boolean
+    On Error GoTo ErrHandler
+
+    If mEditingItemIdx > 0 Then
+        Call btnEditItem_Click       ' runs its CONFIRM branch
+        ConfirmPendingChanges = (mEditingItemIdx = 0)
+        Exit Function
+    End If
+
+    If mEditingSubIdx >= 0 Then
+        Call btnEditSubItem_Click    ' runs its CONFIRM branch
+        ConfirmPendingChanges = (mEditingSubIdx = -1)
+        Exit Function
+    End If
+
+    If mEditingRowIdx > 0 Then
+        Call btnEditRow_Click        ' runs its CONFIRM branch
+        ConfirmPendingChanges = (mEditingRowIdx = 0)
+        Exit Function
+    End If
+
+    Select Case mSecTypes(mCurrentSection)
+
+        Case TYPE_LIST
+            If Len(Trim(txtItem.Text)) > 0 Or _
+               (mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0) Then
+                Call btnAddItem_Click
+                Dim itemAdded As Boolean
+                itemAdded = (Len(Trim(txtItem.Text)) = 0)
+                ConfirmPendingChanges = itemAdded
+                Exit Function
+            End If
+
+        Case TYPE_TABLE, TYPE_RESOURCES, TYPE_DICTIONARY
+            If Replace(ReadTableRowFields(), TABLE_SEP, "") <> "" Then
+                Call btnAddRow_Click     ' runs its "add new row" branch
+                ConfirmPendingChanges = (Replace(ReadTableRowFields(), TABLE_SEP, "") = "")
+                Exit Function
+            End If
+
+    End Select
+
+    ConfirmPendingChanges = True   ' nothing was actually pending
+    Exit Function
+
+ErrHandler:
+    HandleFormError "ConfirmPendingChanges"
+    ConfirmPendingChanges = False
+
+End Function
+
 Private Sub lstSections_Click()
     On Error GoTo ErrHandler
 
@@ -934,6 +1040,35 @@ Private Sub lstSections_Click()
 
     ' If in section edit/reorder mode, don't change what's displayed
     If mEditingSectionIdx > 0 Then Exit Sub
+
+    ' Unless Dev Mode has waived the guardrails, offer to confirm/add
+    ' pending changes before discarding them via a section switch
+    If Not mDeveloperMode And HasUnconfirmedContent() Then
+
+        Dim resp As VbMsgBoxResult
+        resp = MsgBox(BuildUnconfirmedPromptText(), vbYesNoCancel + vbQuestion, "Unsaved Text")
+
+        Select Case resp
+            Case vbCancel
+                mLoading = True
+                lstSections.ListIndex = mCurrentSection - 1
+                mLoading = False
+                Exit Sub
+
+            Case vbYes
+                If Not ConfirmPendingChanges() Then
+                    mLoading = True
+                    lstSections.ListIndex = mCurrentSection - 1
+                    mLoading = False
+                    Exit Sub
+                End If
+                ' else fall through and continue below, changes now saved
+
+            Case vbNo
+                ' fall through and continue below, changes will be discarded
+        End Select
+
+    End If
 
     CancelAnyActiveEditMode
     SaveCurrentSection
@@ -1016,6 +1151,53 @@ Private Function IsBuiltInListSection(ByVal name As String) As Boolean
             IsBuiltInListSection = True
     End Select
     
+End Function
+
+Private Function HasUnconfirmedContent() As Boolean
+    On Error GoTo ErrHandler
+
+    If mEditingItemIdx > 0 Then
+        HasUnconfirmedContent = True
+        Exit Function
+    End If
+
+    If mEditingSubIdx >= 0 Then
+        HasUnconfirmedContent = True
+        Exit Function
+    End If
+
+    If mEditingRowIdx > 0 Then
+        HasUnconfirmedContent = True
+        Exit Function
+    End If
+
+    Select Case mSecTypes(mCurrentSection)
+
+        Case TYPE_LIST
+            If Len(Trim(txtItem.Text)) > 0 Then
+                HasUnconfirmedContent = True
+                Exit Function
+            End If
+            If mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
+                HasUnconfirmedContent = True
+                Exit Function
+            End If
+
+        Case TYPE_TABLE, TYPE_RESOURCES, TYPE_DICTIONARY
+            If Replace(ReadTableRowFields(), TABLE_SEP, "") <> "" Then
+                HasUnconfirmedContent = True
+                Exit Function
+            End If
+
+    End Select
+
+    HasUnconfirmedContent = False
+    Exit Function
+
+ErrHandler:
+    HandleFormError "HasUnconfirmedContent"
+    HasUnconfirmedContent = False
+
 End Function
 
 '====================================================
@@ -2149,10 +2331,25 @@ Private Sub btnAddItem_Click()
         RefreshItemsAfterReorder
     Else
         ' If there's unsaved text in the Sub-item field, ask how to proceed
+        ' If there's unsaved text in the Sub-item field, ask how to proceed
         If mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
+
+            Dim parentDisplay As String
+            If lstItems.ListIndex >= 0 Then
+                parentDisplay = lstItems.List(lstItems.ListIndex)
+            Else
+                parentDisplay = "(no item selected)"
+            End If
+
             Dim subResp As VbMsgBoxResult
-            subResp = MsgBox("Do you want to add """ & Trim(txtSubItem.Text) & """ below first?", _
-                 vbYesNoCancel + vbQuestion, "Unsaved Text")
+            If mSkipConfirmPrompts Then
+                subResp = vbYes
+            Else
+                subResp = MsgBox("Do you want to add """ & Trim(txtSubItem.Text) & """ to """ & parentDisplay & """?" & vbCrLf & vbCrLf & _
+                     "Otherwise it will be discarded.", _
+                     vbYesNoCancel + vbQuestion, "Unsaved Text")
+            End If
+            
             If subResp = vbCancel Then
                 Exit Sub
             ElseIf subResp = vbYes Then
@@ -2290,7 +2487,7 @@ End Sub
 
 Private Sub btnRemoveItem_Click()
     On Error GoTo ErrHandler
-
+    
     If mEditingItemIdx > 0 Then
         ' EDIT MODE: Move Down
         ReorderItem mEditingItemIdx, 1, mSecItems(mCurrentSection).count
@@ -2304,6 +2501,31 @@ Private Sub btnRemoveItem_Click()
             Exit Sub
         End If
 
+        Dim itemIdx As Long
+        itemIdx = selIdx + 1
+
+        ' Check if this item has sub-items, for a stronger warning
+        Dim hasSubs As Boolean
+        hasSubs = False
+
+        If mSecHasSubItems(mCurrentSection) Then
+            Dim parts() As String
+            parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
+            If UBound(parts) >= 1 Then
+                If Trim(parts(1)) <> "" Then hasSubs = True
+            End If
+        End If
+
+        Dim resp As VbMsgBoxResult
+        If hasSubs Then
+            resp = MsgBox("This item has sub-items attached to it." & vbCrLf & vbCrLf & _
+                          "Removing it will permanently delete the item AND all of its sub-items." & vbCrLf & vbCrLf & _
+                          "Are you sure?", vbYesNo + vbExclamation, "Remove Item and Sub-items?")
+            If resp = vbNo Then Exit Sub
+        End If
+
+        If resp = vbNo Then Exit Sub
+
         PushUndo
         
         Dim i As Long
@@ -2315,18 +2537,31 @@ Private Sub btnRemoveItem_Click()
         Next i
         
         Set mSecItems(mCurrentSection) = newCol
-
         lstItems.RemoveItem selIdx
-        lstSubItems.Clear
-        UpdateSubItemControls
+        
+        ' Re-select the item that's now at this position (or the last item,
+        ' if we removed the final row), and refresh its sub-items display
+        If lstItems.ListCount > 0 Then
+            Dim newSelIdx As Long
+            newSelIdx = selIdx
+            If newSelIdx >= lstItems.ListCount Then newSelIdx = lstItems.ListCount - 1
+        
+            lstItems.ListIndex = newSelIdx
+            UpdateSubItemsLabel
+            RefreshSubItems
+        Else
+            lstSubItems.Clear
+            UpdateSubItemControls
+        End If
+        
         UpdateItemControls
     End If
-
+    
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "btnRemoveItem_Click"
-
+    
 End Sub
 
 Private Sub btnEditItem_Click()
@@ -2556,7 +2791,8 @@ Private Sub btnAddSubItem_Click()
         ' If there's unsaved text in the Item field, ask how to proceed
         If Len(Trim(txtItem.Text)) > 0 Then
             Dim itemResp As VbMsgBoxResult
-            itemResp = MsgBox("Do you want to add """ & Trim(txtItem.Text) & """ above first?", _
+            itemResp = MsgBox("Do you want to add """ & Trim(txtItem.Text) & """ to """ & mSecNames(mCurrentSection) & """?" & vbCrLf & vbCrLf & _
+                  "Otherwise it will be discarded.", _
                   vbYesNoCancel + vbQuestion, "Unsaved Text")
             If itemResp = vbCancel Then
                 Exit Sub
@@ -3105,13 +3341,17 @@ End Sub
 
 Private Sub BuildRowEditorFields()
     On Error GoTo ErrHandler
+    
     ClearRowEditor
+    
     If mSecCols(mCurrentSection) = "" Then Exit Sub
+    
     Dim cols() As String
     cols = Split(mSecCols(mCurrentSection), LIST_SEP)
-    Dim i As Long
     Dim topPos As Long
-    topPos = 12
+    topPos = 15
+    
+    Dim i As Long
     For i = 0 To UBound(cols)
         Dim lbl As MSForms.Label
         Set lbl = fraRowEditor.Controls.Add("Forms.Label.1", "lbl_col_" & i)
@@ -3128,6 +3368,7 @@ Private Sub BuildRowEditorFields()
         Else
             lbl.Caption = "Column " & (i + 1) & ":"
         End If
+        
         Dim txt As MSForms.TextBox
         Set txt = fraRowEditor.Controls.Add("Forms.TextBox.1", "txt_col_" & i)
         txt.Tag = "dynamic"
@@ -3137,13 +3378,16 @@ Private Sub BuildRowEditorFields()
         txt.Height = 20
         topPos = topPos + 28
     Next i
+    
     fraRowEditor.ScrollBars = 2
     fraRowEditor.ScrollHeight = topPos + 10
     
     If fraRowEditor.ScrollHeight < 40 Then fraRowEditor.ScrollHeight = 40
     Exit Sub
+    
 ErrHandler:
     HandleFormError "BuildRowEditorFields"
+    
 End Sub
 
 Private Sub chkHasHeader_Click()
@@ -3672,7 +3916,8 @@ Private Sub CancelRowEditMode()
 
     Set mRowEditSnapshot = Nothing
     UpdateRowControls
-    
+    UpdateRowButtonsBasedOnContent   ' <-- ADD THIS LINE
+
 End Sub
 
 '====================================================
