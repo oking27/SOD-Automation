@@ -292,6 +292,12 @@ Private Sub DebugLog(ByVal message As String)
 End Sub
 
 Private Sub lblUpdate_Click()
+'
+'    Dim uDate As String
+'
+'    uDate = "Title Section" & vbCrLf & vbCrLf & _
+'                              "Enter the title/name of the procedure or process." & vbCrLf & _
+'                              "This should be a clear, concise summary."
 
 End Sub
 
@@ -5509,4 +5515,6 @@ ErrHandler:
     HandleFormError "CancelAnyActiveEditMode"
 
 End Sub
+
+
 
