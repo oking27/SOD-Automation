@@ -2,9 +2,9 @@ VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
    Caption         =   "SOD Editor"
    ClientHeight    =   9156.001
-   ClientLeft      =   273
-   ClientTop       =   973
-   ClientWidth     =   11025
+   ClientLeft      =   987
+   ClientTop       =   3766
+   ClientWidth     =   11060
    OleObjectBlob   =   "frmSOD.frx":0000
    StartUpPosition =   2  'CenterScreen
 End
@@ -182,20 +182,14 @@ End Sub
 
 Private Sub fraRowEditor_Click()
 
-    lstRows.Height = 127
-
 End Sub
 
 Private Sub lblColCount_Click()
-
-    lstRows.Height = 127
 
 End Sub
 
 Private Sub lblSectionHelp_Click()
     On Error GoTo ErrHandler
-    
-    lstRows.Height = 127
     
     Dim helpText As String
     
@@ -214,7 +208,7 @@ Private Sub lblSectionHelp_Click()
                 Case LCase(SEC_GROUP):
                     helpText = "Group Section" & vbCrLf & vbCrLf & _
                               "Select the department or functional group responsible for this procedure." & vbCrLf & _
-                              "Choose from the dropdown list."
+                              "Type or choose from the dropdown list."
                 
                 Case LCase(SEC_PURPOSE):
                     helpText = "Purpose Section" & vbCrLf & vbCrLf & _
@@ -297,7 +291,7 @@ Private Sub DebugLog(ByVal message As String)
 End Sub
 
 Private Sub lblUpdate_Click()
-    lstRows.Height = 127
+
 End Sub
 
 '====================================================
@@ -1969,6 +1963,7 @@ Private Sub UpdateSubItemControls()
     If mEditingItemIdx > 0 Then
         txtSubItem.Enabled = False
         txtSubItem.BackColor = &H8000000F
+        txtSubItem.ControlTipText = "Finish editing the item first"
         ' Don't touch button states here - let UpdateSubItemButtonsBasedOnFocus handle it
         Exit Sub
     End If
@@ -1982,8 +1977,10 @@ Private Sub UpdateSubItemControls()
 
     If Not hasParent Then
         txtSubItem.BackColor = &H8000000F
+        txtSubItem.ControlTipText = "Add an item first"
     Else
         txtSubItem.BackColor = &H80000005
+        txtSubItem.ControlTipText = ""
     End If
     
     Exit Sub
@@ -2146,17 +2143,115 @@ Private Sub btnAddItem_Click()
     On Error GoTo ErrHandler
     
     DebugLog "btnAddItem_Click: mode=" & IIf(mEditingItemIdx > 0, "EDIT", "ADD")
-
     If mEditingItemIdx > 0 Then
         ' EDIT MODE: Move Up
         ReorderItem mEditingItemIdx, -1, mSecItems(mCurrentSection).count
         RefreshItemsAfterReorder
     Else
+        ' If there's unsaved text in the Sub-item field, ask how to proceed
+        If mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
+            Dim subResp As VbMsgBoxResult
+            subResp = MsgBox("Do you want to add """ & Trim(txtSubItem.Text) & """ below first?", _
+                 vbYesNoCancel + vbQuestion, "Unsaved Text")
+            If subResp = vbCancel Then
+                Exit Sub
+            ElseIf subResp = vbYes Then
+                ' Add the Sub-item only, under whichever parent is currently
+                ' selected - Item text stays untouched in its box
+                Dim selIdx As Long
+                selIdx = lstItems.ListIndex
+
+                If selIdx < 0 Then
+                    MsgBox "Select a parent item first.", vbExclamation
+                    Exit Sub
+                End If
+
+                Dim itemIdx As Long
+                itemIdx = selIdx + 1
+
+                Dim rawSubLines() As String
+                rawSubLines = Split(txtSubItem.Text, vbCrLf)
+
+                Dim subAddedAny As Boolean
+                subAddedAny = False
+
+                Dim current As String
+                current = mSecItems(mCurrentSection)(itemIdx)
+
+                Dim parts2() As String
+                parts2 = Split(current, TABLE_SEP)
+
+                Dim mainPart As String
+                mainPart = parts2(0)
+
+                Dim existingSubs As String
+                If UBound(parts2) >= 1 Then
+                    existingSubs = parts2(1)
+                Else
+                    existingSubs = ""
+                End If
+
+                Dim subLineIdx As Long
+                For subLineIdx = 0 To UBound(rawSubLines)
+                    Dim cleanSubLine As String
+                    cleanSubLine = Trim(rawSubLines(subLineIdx))
+                    If cleanSubLine <> "" Then
+                        If existingSubs = "" Then
+                            existingSubs = cleanSubLine
+                        Else
+                            existingSubs = existingSubs & LIST_SEP & cleanSubLine
+                        End If
+
+                        Dim subDisplayVal As String
+                        subDisplayVal = cleanSubLine
+                        If Len(subDisplayVal) > 80 Then subDisplayVal = Left(subDisplayVal, 77) & "..."
+                        lstSubItems.AddItem subDisplayVal
+
+                        subAddedAny = True
+                    End If
+                Next subLineIdx
+
+                If Not subAddedAny Then
+                    MsgBox "Please type or paste at least one sub-item before adding.", vbExclamation
+                    Exit Sub
+                End If
+
+                current = mainPart & TABLE_SEP & existingSubs
+
+                Dim newCol2 As New Collection
+                Dim j As Long
+                For j = 1 To mSecItems(mCurrentSection).count
+                    If j = itemIdx Then
+                        newCol2.Add current
+                    Else
+                        newCol2.Add mSecItems(mCurrentSection)(j)
+                    End If
+                Next j
+
+                Set mSecItems(mCurrentSection) = newCol2
+
+                ' Capture item text before touching lstSubItems, in case
+                ' any side-effect handler clears it
+                Dim savedItemText As String
+                savedItemText = txtItem.Text
+
+                txtSubItem.Text = ""
+                lstSubItems.ListIndex = lstSubItems.ListCount - 1
+                UpdateSubItemControls
+
+                txtItem.Text = savedItemText
+
+                Exit Sub
+            ElseIf subResp = vbNo Then
+                ' Add the Item now. Sub-item text stays untouched in its box -
+                ' fall through to normal add logic below.
+            End If
+        End If
+
         ' NORMAL MODE: split pasted text on line breaks so a paste of
         ' multiple lines becomes multiple items in one click
         Dim rawLines() As String
         rawLines = Split(txtItem.Text, vbCrLf)
-
         Dim addedAny As Boolean
         addedAny = False
         
@@ -2171,27 +2266,26 @@ Private Sub btnAddItem_Click()
                 addedAny = True
             End If
         Next lineIdx
-
+        
         If Not addedAny Then
             MsgBox "Please type or paste at least one item before adding.", vbExclamation
             Exit Sub
         End If
-
+        
         txtItem.Text = ""
         lstItems.ListIndex = lstItems.ListCount - 1
         UpdateItemControls
-
         If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then
             UpdateSubItemsLabel
             RefreshSubItems
         End If
     End If
-
+    
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "btnAddItem_Click"
-
+    
 End Sub
 
 Private Sub btnRemoveItem_Click()
@@ -2443,76 +2537,111 @@ End Sub
 
 Private Sub btnAddSubItem_Click()
     On Error GoTo ErrHandler
-
+    
     Dim selIdx As Long
     selIdx = lstItems.ListIndex
-
     If selIdx < 0 Then
         MsgBox "Select a parent item first.", vbExclamation
         Exit Sub
     End If
-
+    
     Dim itemIdx As Long
     itemIdx = selIdx + 1
-
+    
     If mEditingSubIdx >= 0 Then
         ' EDIT MODE: Move Up
         ReorderSubItem mEditingSubIdx, -1, itemIdx
         RefreshSubItemsAfterReorder
     Else
+        ' If there's unsaved text in the Item field, ask how to proceed
+        If Len(Trim(txtItem.Text)) > 0 Then
+            Dim itemResp As VbMsgBoxResult
+            itemResp = MsgBox("Do you want to add """ & Trim(txtItem.Text) & """ above first?", _
+                  vbYesNoCancel + vbQuestion, "Unsaved Text")
+            If itemResp = vbCancel Then
+                Exit Sub
+            ElseIf itemResp = vbYes Then
+                ' Add the Item only - Sub-item text stays untouched in its box
+                Dim pendingLines() As String
+                pendingLines = Split(txtItem.Text, vbCrLf)
+    
+                Dim pendingAdded As Boolean
+                pendingAdded = False
+    
+                Dim pendingIdx As Long
+                For pendingIdx = 0 To UBound(pendingLines)
+                    Dim pendingClean As String
+                    pendingClean = Trim(pendingLines(pendingIdx))
+                    If pendingClean <> "" Then
+                        mSecItems(mCurrentSection).Add pendingClean
+                        lstItems.AddItem pendingClean
+                        pendingAdded = True
+                    End If
+                Next pendingIdx
+    
+                If Not pendingAdded Then
+                    MsgBox "Please type or paste at least one item before adding.", vbExclamation
+                    Exit Sub
+                End If
+    
+                ' Capture sub-item text before selecting the new item, since
+                ' lstItems_Click may clear txtSubItem as a side effect
+                Dim savedSubText As String
+                savedSubText = txtSubItem.Text
+    
+                txtItem.Text = ""
+                lstItems.ListIndex = lstItems.ListCount - 1
+                UpdateItemControls
+    
+                txtSubItem.Text = savedSubText
+    
+                Exit Sub
+            ElseIf itemResp = vbNo Then
+                ' Add the Sub-item now, using whichever parent is currently selected.
+                ' Item text stays untouched in its box - fall through to normal add logic below.
+            End If
+        End If
+    
         ' NORMAL MODE: split pasted text on line breaks, each line
         ' becomes its own sub-item
         Dim rawLines() As String
         rawLines = Split(txtSubItem.Text, vbCrLf)
-
         Dim addedAny As Boolean
         addedAny = False
-
         Dim current As String
         current = mSecItems(mCurrentSection)(itemIdx)
-
         Dim parts2() As String
         parts2 = Split(current, TABLE_SEP)
-
         Dim mainPart As String
         mainPart = parts2(0)
-
         Dim existingSubs As String
         If UBound(parts2) >= 1 Then
             existingSubs = parts2(1)
         Else
             existingSubs = ""
         End If
-
         Dim lineIdx As Long
         For lineIdx = 0 To UBound(rawLines)
-
             Dim cleanLine As String
             cleanLine = Trim(rawLines(lineIdx))
             If cleanLine <> "" Then
-
                 If existingSubs = "" Then
                     existingSubs = cleanLine
                 Else
                     existingSubs = existingSubs & LIST_SEP & cleanLine
                 End If
-
                 Dim displayVal As String
                 displayVal = cleanLine
                 If Len(displayVal) > 80 Then displayVal = Left(displayVal, 77) & "..."
                 lstSubItems.AddItem displayVal
-
                 addedAny = True
             End If
         Next lineIdx
-
         If Not addedAny Then
             MsgBox "Please type or paste at least one sub-item before adding.", vbExclamation
             Exit Sub
         End If
-
         current = mainPart & TABLE_SEP & existingSubs
-
         Dim newCol2 As New Collection
         Dim j As Long
         For j = 1 To mSecItems(mCurrentSection).count
@@ -2530,10 +2659,9 @@ Private Sub btnAddSubItem_Click()
     End If
 
     Exit Sub
-
 ErrHandler:
     HandleFormError "btnAddSubItem_Click"
-
+    
 End Sub
 
 Private Sub btnRemoveSubItem_Click()
@@ -2915,7 +3043,6 @@ Private Sub RefreshRowsAfterReorder()
     
     mLoading = True
     lstRows.ListIndex = mEditingRowIdx - 1
-    lstRows.Height = 127   ' re-assert AFTER ListIndex, since that assignment also re-triggers growth
     mLoading = False
     Exit Sub
 
@@ -3014,48 +3141,6 @@ Private Sub BuildRowEditorFields()
     fraRowEditor.ScrollHeight = topPos + 10
     
     If fraRowEditor.ScrollHeight < 40 Then fraRowEditor.ScrollHeight = 40
-    
-    ' TEMP DEBUG
-Debug.Print "fraRowEditor.ScrollHeight=" & fraRowEditor.ScrollHeight & _
-            "  lstRows.Height=" & lstRows.Height & _
-            "  lstRows.Top=" & lstRows.Top
-            
-    ' Force lstRows back to its intended fixed height, since fraRowEditor's
-' growing ScrollHeight appears to drag lstRows.Height along with it
-lstRows.Height = 124.45   ' ? use whatever your original/intended height is
-
-    ' Set up lstRows as a real multi-column grid to match this column count
-    Dim colCount As Long
-    colCount = UBound(cols) + 1
-
-    lstRows.ColumnCount = colCount
-
-    Dim widthStr As String
-    Dim visibleCols As Long
-    Dim widthEach As Single
-    
-    ' Cap the divisor at 4 - columns beyond that stay the same width
-    ' as a 4-column split, and require horizontal scrolling to reach
-    If colCount <= 1 Then
-        visibleCols = 1
-    ElseIf colCount > 4 Then
-        visibleCols = 4
-    Else
-        visibleCols = colCount
-    End If
-    
-    widthEach = lstRows.Width / visibleCols
-    
-    Dim c As Long
-    For c = 1 To colCount
-        If c = 1 Then
-            widthStr = widthEach & " pt"
-        Else
-            widthStr = widthStr & ";" & widthEach & " pt"
-        End If
-    Next c
-    lstRows.ColumnWidths = widthStr
-
     Exit Sub
 ErrHandler:
     HandleFormError "BuildRowEditorFields"
@@ -3063,8 +3148,6 @@ End Sub
 
 Private Sub chkHasHeader_Click()
     On Error GoTo ErrHandler
-    
-    lstRows.Height = 127   ' safety net - see chat notes re: ColumnCount/ColumnWidths growth bug
 
     If mLoading Then Exit Sub
     Dim isTableLike As Boolean
@@ -3158,8 +3241,6 @@ End Function
 
 Private Sub spnColCount_Change()
     On Error GoTo ErrHandler
-    
-    lstRows.Height = 127   ' safety net - see chat notes re: ColumnCount/ColumnWidths growth bug
 
     If mLoading Then Exit Sub
     
@@ -3602,55 +3683,35 @@ Private Sub RefreshRowList(ByVal idx As Long)
     On Error GoTo ErrHandler
     
     lstRows.Clear
-
-    Dim rowCount As Long
-    rowCount = mSecItems(idx).count
-
-    If rowCount = 0 Then
-        UpdateRowControls
-        Exit Sub
-    End If
-
-    Dim colCount As Long
-    If mSecCols(idx) <> "" Then
-        colCount = UBound(Split(mSecCols(idx), LIST_SEP)) + 1
-    Else
-        colCount = 1
-    End If
-
-    lstRows.ColumnCount = colCount
-
-    Dim gridData() As String
-    ReDim gridData(1 To rowCount, 0 To colCount - 1)
+    lstRows.ColumnCount = 1
 
     Dim i As Long
-    For i = 1 To rowCount
+    For i = 1 To mSecItems(idx).count
         Dim parts() As String
         parts = Split(mSecItems(idx)(i), TABLE_SEP)
-
+        Dim display As String
+        display = ""
         Dim j As Long
-        For j = 0 To colCount - 1
-            If j <= UBound(parts) Then
-                gridData(i, j) = Trim(parts(j))
+        For j = 0 To UBound(parts)
+            Dim val As String
+            val = Trim(parts(j))
+            If j = 0 Then
+                display = val
             Else
-                gridData(i, j) = ""
+                display = display & "  |  " & val
             End If
         Next j
-
-        ' Add « » indicator around column 0 only, if this is row 1 and header checkbox is checked
-        ' Add • prefix to every column, if this is row 1 and header checkbox is checked
+        
+        If Replace(display, "|", "") = "" Then display = Replace(display, "|", "") & "(empty row " & i & ")"
+        
+        ' Add • prefix to every column-ish segment, if this is row 1 and header checkbox is checked
         If i = 1 And mSecHasHeader(idx) Then
-            For j = 0 To colCount - 1
-                gridData(i, j) = "• " & gridData(i, j)
-            Next j
+            display = "« " & display & " »"
         End If
+        lstRows.AddItem display
     Next i
-
-    lstRows.List = gridData
-    lstRows.Height = 127   ' safety net - see chat notes re: ColumnCount/ColumnWidths growth bug
     
     If mSecTypes(idx) = TYPE_TABLE Then
-    
         If mDeveloperMode Then
             chkHasHeader.Enabled = True
             chkHasHeader.ControlTipText = "DEV: Unlocked for testing"
@@ -3760,8 +3821,7 @@ End Sub
 
 Private Sub btnAddRow_Click()
     On Error GoTo ErrHandler
-    
-    lstRows.Height = 127
+
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
                    mSecTypes(mCurrentSection) = TYPE_RESOURCES Or _
@@ -3803,8 +3863,6 @@ End Sub
 
 Private Sub btnRemoveRow_Click()
     On Error GoTo ErrHandler
-    
-    lstRows.Height = 127
 
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
@@ -3883,8 +3941,6 @@ End Sub
 Private Sub btnEditRow_Click()
     On Error GoTo ErrHandler
     
-    lstRows.Height = 127
-
     Dim isTableLike As Boolean
     isTableLike = (mSecTypes(mCurrentSection) = TYPE_TABLE Or _
                    mSecTypes(mCurrentSection) = TYPE_RESOURCES Or _
@@ -3955,8 +4011,6 @@ End Sub
 
 Private Sub btnRowUp_Click()
     On Error GoTo ErrHandler
-    
-    lstRows.Height = 127
 
     Dim selIdx As Long
     selIdx = lstRows.ListIndex
@@ -3979,8 +4033,6 @@ End Sub
 
 Private Sub btnRowDown_Click()
     On Error GoTo ErrHandler
-    
-    lstRows.Height = 127
 
     Dim selIdx As Long
     selIdx = lstRows.ListIndex
