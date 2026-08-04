@@ -2888,7 +2888,7 @@ Private Sub btnAddSubItem_Click()
                     existingSubs = existingSubs & LIST_SEP & cleanLine
                 End If
                 
-                lstSubItems.AddItem TruncateForDisplay(txt)
+                lstSubItems.AddItem TruncateForDisplay(cleanLine)
                 addedAny = True
             End If
         Next lineIdx
