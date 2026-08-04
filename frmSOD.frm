@@ -113,6 +113,21 @@ Private mDeveloperMode As Boolean      ' when True, removes guardrails and enabl
 Private mSkipConfirmPrompts As Boolean   ' suppresses nested duplicate prompts when the caller already confirmed
 Private mShowingUnconfirmedPrompt As Boolean
 
+' -1 = not drilled into any sub-item, otherwise 0-based index of
+' the sub-item (within its parent Item) currently drilled into.
+' Mirrors mEditingSubIdx's convention but one level deeper.
+
+Private SUBSUB_SEP As String   '- separates sub-sub-items within
+Private mDrilledSubIdx As Long       ' -1 = not drilled in, else 0-based index of the
+                                      ' sub-item (within current Item) whose children we're viewing
+Private mEditingSubSubIdx As Long    ' -1 = not editing, else 0-based index of the sub-sub-item being edited within the drilled-into sub-item
+                                      
+Private mSubSubEditSnapshotSec As Long
+Private mSubSubEditSnapshotSubIdx As Long   ' which sub-item (lstSubItems index) we were
+                                              ' drilled into when the edit snapshot was taken
+                                              
+
+
 '====================================================
 ' CENTRAL ERROR HANDLER
 ' Every event handler and data function routes runtime
@@ -178,6 +193,71 @@ Private Sub btnDevMode_Click()
 ErrHandler:
     HandleFormError "btnDevMode_Click"
     
+End Sub
+
+Private Sub btnDrillIntoSub_Click()
+    On Error GoTo ErrHandler
+
+    If mDrilledSubIdx >= 0 Then
+        DrillOutOfSub
+    Else
+        If lstSubItems.ListIndex < 0 Then Exit Sub
+        DrillIntoSub lstSubItems.ListIndex
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "btnDrillIntoSub_Click"
+
+End Sub
+
+Private Sub DrillIntoSub(ByVal subIdx As Long)
+    On Error GoTo ErrHandler
+
+    mDrilledSubIdx = subIdx
+
+    lblSubItems.Caption = "Bullets under: " & TruncateForDisplay(lstSubItems.List(subIdx))
+    btnDrillIntoSub.Caption = "Back"
+
+    ' Lock out the Item list/buttons while drilled in - same principle as
+    ' "editing a sub-item blocks item buttons" elsewhere in this form
+    lstItems.Enabled = False
+    btnAddItem.Enabled = False
+    btnEditItem.Enabled = False
+    btnRemoveItem.Enabled = False
+
+    txtSubItem.Text = ""
+    RefreshSubSubItems
+    UpdateSubSubItemButtonsBasedOnFocus
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "DrillIntoSub"
+
+End Sub
+
+Private Sub DrillOutOfSub()
+    On Error GoTo ErrHandler
+
+    mDrilledSubIdx = -1
+
+    lblSubItems.Caption = "Sub-items:"
+    btnDrillIntoSub.Caption = "Sub-bullets"
+
+    lstItems.Enabled = True
+    UpdateItemButtonsBasedOnFocus
+
+    txtSubItem.Text = ""
+    RefreshSubItems
+    UpdateSubItemButtonsBasedOnFocus
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "DrillOutOfSub"
+
 End Sub
 
 Private Sub fraContent_Click()
@@ -323,6 +403,11 @@ Private Sub UserForm_Initialize()
 
     TABLE_SEP = Chr(31)
     LIST_SEP = Chr(30)
+    SUBSUB_SEP = Chr(29)
+
+    mDrilledSubIdx = -1
+    mEditingSubSubIdx = -1
+    
 
     mLoading = True
     mEditingItemIdx = 0
@@ -946,48 +1031,111 @@ End Sub
 
 Private Sub UpdateSubItemButtonsBasedOnFocus()
     On Error GoTo ErrHandler
-    
+
+    If mDrilledSubIdx >= 0 Then
+        UpdateSubSubItemButtonsBasedOnFocus
+        Exit Sub
+    End If
+
     ' BLOCK: If Item is being edited, disable all subitem buttons
     If mEditingItemIdx > 0 Then
         btnAddSubItem.Enabled = False
         btnEditSubItem.Enabled = False
         btnRemoveSubItem.Enabled = False
+        btnDrillIntoSub.Enabled = False        ' NEW
         Exit Sub
     End If
-    
+
     ' BLOCK: If no parent item selected, disable everything
     If lstItems.ListIndex < 0 Then
         btnAddSubItem.Enabled = False
         btnEditSubItem.Enabled = False
         btnRemoveSubItem.Enabled = False
+        btnDrillIntoSub.Enabled = False        ' NEW
         Exit Sub
     End If
-    
+
     ' EDIT MODE: Position-based enabling
     If mEditingSubIdx >= 0 Then
         Dim parentIdx As Long
         parentIdx = lstItems.ListIndex + 1
         Dim parts() As String
         parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
-        
+
         If UBound(parts) < 1 Then
             btnAddSubItem.Enabled = False
             btnEditSubItem.Enabled = False
             btnRemoveSubItem.Enabled = False
+            btnDrillIntoSub.Enabled = False    ' NEW - can't drill in mid Move Up/Down
             Exit Sub
         End If
-        
+
         Dim subs() As String
         subs = Split(parts(1), LIST_SEP)
         btnAddSubItem.Enabled = (mEditingSubIdx > 0)
         btnEditSubItem.Enabled = True
         btnRemoveSubItem.Enabled = (mEditingSubIdx < UBound(subs))
+        btnDrillIntoSub.Enabled = False        ' NEW - reorder mode, not a stable selection
         Exit Sub
     End If
-    
+
     ' NORMAL MODE: Check if txtSubItem has content
     btnAddSubItem.Enabled = (Len(Trim(txtSubItem.Text)) > 0)
-    ' "Edit" and "– Remove" enabled only if lstSubItems has selection
+    Dim hasSelection As Boolean
+    hasSelection = (lstSubItems.ListIndex >= 0)
+    btnEditSubItem.Enabled = hasSelection
+    btnRemoveSubItem.Enabled = hasSelection
+    btnDrillIntoSub.Enabled = hasSelection     ' NEW - this is the actual gate you asked for
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateSubItemButtonsBasedOnFocus"
+
+End Sub
+
+Private Sub UpdateSubSubItemButtonsBasedOnFocus()
+    On Error GoTo ErrHandler
+
+    ' Same buttons (btnAddSubItem/btnEditSubItem/btnRemoveSubItem) are
+    ' being repurposed here - captions were already swapped when we drilled in
+
+    If lstItems.ListIndex < 0 Or lstSubItems.ListIndex < 0 Then
+        btnAddSubItem.Enabled = False
+        btnEditSubItem.Enabled = False
+        btnRemoveSubItem.Enabled = False
+        Exit Sub
+    End If
+
+    Dim parentIdx As Long
+    parentIdx = lstItems.ListIndex + 1
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
+
+    Dim subs() As String
+    subs = Split(parts(1), LIST_SEP)
+
+    ' The sub-item we drilled into is subs(mDrilledSubIdx). It may itself
+    ' carry SUBSUB_SEP-delimited children after a SUBSUB_SEP marker.
+    Dim subParts() As String
+    subParts = Split(subs(mDrilledSubIdx), SUBSUB_SEP)
+
+    If mEditingSubIdx >= 0 Then   ' reusing mEditingSubIdx as the edit cursor here too
+        If UBound(subParts) < 1 Then
+            btnAddSubItem.Enabled = False
+            btnEditSubItem.Enabled = False
+            btnRemoveSubItem.Enabled = False
+            Exit Sub
+        End If
+
+        Dim subsubs() As String
+        subsubs = Split(subParts(1), LIST_SEP)
+        btnAddSubItem.Enabled = (mEditingSubIdx > 0)
+        btnEditSubItem.Enabled = True
+        btnRemoveSubItem.Enabled = (mEditingSubIdx < UBound(subsubs))
+        Exit Sub
+    End If
+
+    btnAddSubItem.Enabled = (Len(Trim(txtSubItem.Text)) > 0)
     Dim hasSelection As Boolean
     hasSelection = (lstSubItems.ListIndex >= 0)
     btnEditSubItem.Enabled = hasSelection
@@ -995,7 +1143,7 @@ Private Sub UpdateSubItemButtonsBasedOnFocus()
     Exit Sub
 
 ErrHandler:
-    HandleFormError "UpdateSubItemButtonsBasedOnFocus"
+    HandleFormError "UpdateSubSubItemButtonsBasedOnFocus"
 
 End Sub
 
@@ -2096,6 +2244,69 @@ ErrHandler:
 
 End Sub
 
+Private Sub RefreshSubSubItems()
+    On Error GoTo ErrHandler
+
+    lstSubItems.Clear   ' same physical control, now showing sub-sub-items
+
+    If mDrilledSubIdx < 0 Then
+        UpdateSubSubItemControls
+        Exit Sub
+    End If
+
+    Dim parentIdx As Long
+    parentIdx = lstItems.ListIndex + 1
+    If lstItems.ListIndex < 0 Or parentIdx > mSecItems(mCurrentSection).count Then
+        UpdateSubSubItemControls
+        Exit Sub
+    End If
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
+    If UBound(parts) < 1 Then
+        UpdateSubSubItemControls
+        Exit Sub
+    End If
+
+    Dim subs() As String
+    subs = Split(parts(1), LIST_SEP)
+    If mDrilledSubIdx > UBound(subs) Then
+        UpdateSubSubItemControls
+        Exit Sub
+    End If
+
+    Dim entry As String
+    entry = subs(mDrilledSubIdx)
+    If InStr(entry, SUBSUB_SEP) > 0 Then
+
+        Dim subParts() As String
+        subParts = Split(entry, SUBSUB_SEP)
+        If UBound(subParts) >= 1 Then
+            If Trim(subParts(1)) <> "" Then
+
+                Dim subsubs() As String
+                subsubs = Split(subParts(1), LIST_SEP)
+                Dim i As Long
+                For i = 0 To UBound(subsubs)
+
+                    Dim txt As String
+                    txt = Trim(subsubs(i))
+                    If txt <> "" Then
+                        lstSubItems.AddItem TruncateForDisplay(txt)
+                    End If
+                Next i
+            End If
+        End If
+    End If
+
+    UpdateSubSubItemControls
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "RefreshSubSubItems"
+
+End Sub
+
 Private Sub RefreshItemsDisplay()
     On Error GoTo ErrHandler
     
@@ -2192,6 +2403,27 @@ Private Sub UpdateSubItemControls()
 
 ErrHandler:
     HandleFormError "UpdateSubItemControls"
+
+End Sub
+
+Private Sub UpdateSubSubItemControls()
+    On Error GoTo ErrHandler
+
+    ' Same role as UpdateSubItemControls: textbox visual state only.
+    ' Button enabling handled by UpdateSubSubItemButtonsBasedOnFocus()
+
+    If mEditingSubSubIdx >= 0 Then Exit Sub   ' don't interfere with edit mode
+
+    ' Normal drilled-in mode: txtSubItem is always enabled here, since you
+    ' can't be drilled in without a valid parent sub-item already selected
+    txtSubItem.Enabled = True
+    txtSubItem.BackColor = &H80000005
+    txtSubItem.ControlTipText = ""
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "UpdateSubSubItemControls"
 
 End Sub
 
@@ -2792,6 +3024,11 @@ End Sub
 Private Sub btnAddSubItem_Click()
     On Error GoTo ErrHandler
     
+    If mDrilledSubIdx >= 0 Then
+        AddSubSubItem
+        Exit Sub
+    End If
+    
     Dim selIdx As Long
     selIdx = lstItems.ListIndex
     If selIdx < 0 Then
@@ -2924,6 +3161,11 @@ End Sub
 
 Private Sub btnRemoveSubItem_Click()
     On Error GoTo ErrHandler
+    
+    If mDrilledSubIdx >= 0 Then
+        RemoveSubSubItem
+        Exit Sub
+    End If
 
     Dim parentIdx As Long
     parentIdx = lstItems.ListIndex
@@ -2996,6 +3238,11 @@ End Sub
 
 Private Sub btnEditSubItem_Click()
     On Error GoTo ErrHandler
+    
+    If mDrilledSubIdx >= 0 Then
+        EditSubSubItem
+        Exit Sub
+    End If
 
     If mEditingSubIdx >= 0 Then
 
@@ -3155,6 +3402,30 @@ Private Sub CancelSubItemEditMode()
 
 End Sub
 
+Private Sub CancelSubSubItemEditMode()
+
+    If Not mSubSubEditSnapshot Is Nothing Then
+        If mSubSubEditSnapshotSec = mCurrentSection Then
+            Set mSecItems(mCurrentSection) = CloneCollection(mSubSubEditSnapshot)
+            lstSubItems.ListIndex = mSubSubEditSnapshotSubIdx
+            RefreshSubSubItems
+        End If
+    End If
+
+    mEditingSubSubIdx = -1
+    btnEditSubItem.Caption = "Edit"
+    btnAddSubItem.Caption = "+ Add"
+    btnRemoveSubItem.Caption = "– Remove"
+    btnCancel.Caption = "Close Editor"
+    txtSubItem.Text = ""
+
+    Set mSubSubEditSnapshot = Nothing
+    lstSubItems.SpecialEffect = 3
+
+    UpdateSubSubItemControls
+
+End Sub
+
 Private Sub SaveEditedSubItemTextInPlace(ByVal itemIdx As Long)
 
     Dim newSub As String
@@ -3187,6 +3458,323 @@ Private Sub SaveEditedSubItemTextInPlace(ByVal itemIdx As Long)
     Next i
     
     Set mSecItems(mCurrentSection) = newCol
+
+End Sub
+
+Private Sub SaveEditedSubSubItemTextInPlace(ByVal itemIdx As Long, ByVal subIdx As Long)
+
+    Dim newSubSub As String
+    newSubSub = Trim(txtSubItem.Text)
+    If newSubSub = "" Then Exit Sub
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
+
+    Dim subs() As String
+    subs = Split(parts(1), LIST_SEP)
+
+    Dim subParts() As String
+    If InStr(subs(subIdx), SUBSUB_SEP) > 0 Then
+        subParts = Split(subs(subIdx), SUBSUB_SEP)
+    Else
+        ReDim subParts(0)
+        subParts(0) = subs(subIdx)
+    End If
+
+    Dim subsubs() As String
+    If UBound(subParts) >= 1 Then
+        subsubs = Split(subParts(1), LIST_SEP)
+    Else
+        ReDim subsubs(0)
+    End If
+
+    subsubs(mEditingSubSubIdx) = newSubSub
+
+    ' Rebuild bottom-up: subsub array -> sub-item string -> subs array -> item string
+    Dim newSubItemStr As String
+    newSubItemStr = subParts(0) & SUBSUB_SEP & Join(subsubs, LIST_SEP)
+
+    subs(subIdx) = newSubItemStr
+
+    Dim newStr As String
+    newStr = parts(0) & TABLE_SEP & Join(subs, LIST_SEP)
+
+    Dim newCol As New Collection
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If i = itemIdx Then
+            newCol.Add newStr
+        Else
+            newCol.Add mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+
+    Set mSecItems(mCurrentSection) = newCol
+
+End Sub
+
+Private Sub AddSubSubItem()
+    On Error GoTo ErrHandler
+
+    Dim parentIdx As Long
+    parentIdx = lstItems.ListIndex + 1
+
+    If mEditingSubSubIdx >= 0 Then
+        ' EDIT MODE: Move Up (mirrors the mEditingSubIdx >= 0 branch above)
+        ReorderSubSubItem mEditingSubSubIdx, -1, parentIdx, mDrilledSubIdx
+        RefreshSubSubItemsAfterReorder
+        Exit Sub
+    End If
+
+    ' NORMAL MODE: split pasted text on line breaks, each line becomes
+    ' its own sub-sub-item. Mirrors btnAddSubItem_Click's normal-mode block.
+    Dim rawLines() As String
+    rawLines = Split(txtSubItem.Text, vbCrLf)
+    Dim addedAny As Boolean
+    addedAny = False
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
+    Dim mainPart As String
+    mainPart = parts(0)
+
+    Dim subs() As String
+    subs = Split(parts(1), LIST_SEP)
+
+    Dim subParts() As String
+    If InStr(subs(mDrilledSubIdx), SUBSUB_SEP) > 0 Then
+        subParts = Split(subs(mDrilledSubIdx), SUBSUB_SEP)
+    Else
+        ReDim subParts(0)
+        subParts(0) = subs(mDrilledSubIdx)
+    End If
+
+    Dim subText As String
+    subText = subParts(0)
+
+    Dim existingSubSubs As String
+    If UBound(subParts) >= 1 Then
+        existingSubSubs = subParts(1)
+    Else
+        existingSubSubs = ""
+    End If
+
+    Dim lineIdx As Long
+    For lineIdx = 0 To UBound(rawLines)
+        Dim cleanLine As String
+        cleanLine = Trim(rawLines(lineIdx))
+        If cleanLine <> "" Then
+            If existingSubSubs = "" Then
+                existingSubSubs = cleanLine
+            Else
+                existingSubSubs = existingSubSubs & LIST_SEP & cleanLine
+            End If
+            lstSubItems.AddItem TruncateForDisplay(cleanLine)
+            addedAny = True
+        End If
+    Next lineIdx
+
+    If Not addedAny Then
+        MsgBox "Please type or paste at least one sub-detail before adding.", vbExclamation
+        Exit Sub
+    End If
+
+    subs(mDrilledSubIdx) = subText & SUBSUB_SEP & existingSubSubs
+
+    Dim newItemStr As String
+    newItemStr = mainPart & TABLE_SEP & Join(subs, LIST_SEP)
+
+    Dim newCol As New Collection
+    Dim j As Long
+    For j = 1 To mSecItems(mCurrentSection).count
+        If j = parentIdx Then
+            newCol.Add newItemStr
+        Else
+            newCol.Add mSecItems(mCurrentSection)(j)
+        End If
+    Next j
+
+    Set mSecItems(mCurrentSection) = newCol
+    txtSubItem.Text = ""
+    lstSubItems.ListIndex = lstSubItems.ListCount - 1
+    UpdateSubSubItemControls
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "AddSubSubItem"
+
+End Sub
+
+Private Sub RemoveSubSubItem()
+    On Error GoTo ErrHandler
+
+    Dim parentIdx As Long
+    parentIdx = lstItems.ListIndex + 1
+
+    If mEditingSubSubIdx >= 0 Then
+        ReorderSubSubItem mEditingSubSubIdx, 1, parentIdx, mDrilledSubIdx
+        RefreshSubSubItemsAfterReorder
+        Exit Sub
+    End If
+
+    Dim subSubIdx As Long
+    subSubIdx = lstSubItems.ListIndex
+
+    If subSubIdx < 0 Then
+        MsgBox "Select a sub-detail to remove.", vbExclamation
+        Exit Sub
+    End If
+
+    PushUndo
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
+
+    Dim subs() As String
+    subs = Split(parts(1), LIST_SEP)
+
+    Dim subParts() As String
+    subParts = Split(subs(mDrilledSubIdx), SUBSUB_SEP)
+    Dim subText As String
+    subText = subParts(0)
+
+    Dim newSubSubs As String
+    If UBound(subParts) >= 1 Then
+        Dim subsubs() As String
+        subsubs = Split(subParts(1), LIST_SEP)
+
+        Dim j As Long
+        For j = 0 To UBound(subsubs)
+            If j <> subSubIdx Then
+                If newSubSubs = "" Then
+                    newSubSubs = subsubs(j)
+                Else
+                    newSubSubs = newSubSubs & LIST_SEP & subsubs(j)
+                End If
+            End If
+        Next j
+    End If
+
+    If newSubSubs <> "" Then
+        subs(mDrilledSubIdx) = subText & SUBSUB_SEP & newSubSubs
+    Else
+        subs(mDrilledSubIdx) = subText   ' no children left - drop the marker entirely
+    End If
+
+    Dim newItemStr As String
+    newItemStr = parts(0) & TABLE_SEP & Join(subs, LIST_SEP)
+
+    Dim newCol As New Collection
+    Dim k As Long
+    For k = 1 To mSecItems(mCurrentSection).count
+        If k = parentIdx Then
+            newCol.Add newItemStr
+        Else
+            newCol.Add mSecItems(mCurrentSection)(k)
+        End If
+    Next k
+    Set mSecItems(mCurrentSection) = newCol
+
+    lstSubItems.RemoveItem subSubIdx
+    UpdateSubSubItemControls
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "RemoveSubSubItem"
+
+End Sub
+
+Private Sub EditSubSubItem()
+    On Error GoTo ErrHandler
+
+    Dim parentIdx As Long
+    parentIdx = lstItems.ListIndex + 1
+
+    If mEditingSubSubIdx >= 0 Then
+
+        ' CONFIRM
+        Dim newSubSub As String
+        newSubSub = Trim(txtSubItem.Text)
+
+        If newSubSub = "" Then
+            MsgBox "Please type a sub-detail before confirming.", vbExclamation
+            Exit Sub
+        End If
+
+        PushUndo
+        SaveEditedSubSubItemTextInPlace parentIdx, mDrilledSubIdx
+
+        Dim savedIdx As Long
+        savedIdx = mEditingSubSubIdx
+
+        ExitSubSubItemEditMode
+        RefreshSubSubItems
+        lstSubItems.ListIndex = savedIdx
+
+    Else
+        Dim subSubIdx As Long
+        subSubIdx = lstSubItems.ListIndex
+
+        If subSubIdx < 0 Then
+            MsgBox "Select a sub-detail to edit.", vbExclamation
+            Exit Sub
+        End If
+
+        Dim parts() As String
+        parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
+        Dim subs() As String
+        subs = Split(parts(1), LIST_SEP)
+
+        Dim subParts() As String
+        If InStr(subs(mDrilledSubIdx), SUBSUB_SEP) = 0 Then Exit Sub
+        subParts = Split(subs(mDrilledSubIdx), SUBSUB_SEP)
+
+        Dim subsubs() As String
+        subsubs = Split(subParts(1), LIST_SEP)
+
+        If subSubIdx > UBound(subsubs) Then Exit Sub
+
+        txtSubItem.Text = subsubs(subSubIdx)
+        txtSubItem.SetFocus
+
+        Set mSubSubEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
+        mSubSubEditSnapshotSec = mCurrentSection
+        mSubSubEditSnapshotSubIdx = mDrilledSubIdx
+
+        mEditingSubSubIdx = subSubIdx
+
+        btnEditSubItem.Caption = "Confirm"
+        btnAddSubItem.Caption = "Move Up"
+        btnRemoveSubItem.Caption = "Move Down"
+        btnCancel.Caption = "Cancel"
+
+        lstSubItems.SpecialEffect = 2
+
+        UpdateSubSubItemButtonsBasedOnFocus
+    End If
+
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "EditSubSubItem"
+
+End Sub
+
+Private Sub ExitSubSubItemEditMode()
+
+    mEditingSubSubIdx = -1
+    btnEditSubItem.Caption = "Edit"
+    btnAddSubItem.Caption = "+ Add"
+    btnRemoveSubItem.Caption = "– Remove"
+    btnCancel.Caption = "Close Editor"
+    txtSubItem.Text = ""
+
+    Set mSubSubEditSnapshot = Nothing
+    lstSubItems.SpecialEffect = 3
+
+    UpdateSubSubItemButtonsBasedOnFocus
 
 End Sub
 
@@ -5464,6 +6052,23 @@ Private Sub btnCancel_Click()
         CancelItemEditMode
         RefreshItemsDisplay
         Exit Sub
+    End If
+    
+    If mEditingSubSubIdx >= 0 Then
+        CancelSubSubItemEditMode
+        Exit Sub
+    End If
+    
+    If mEditingSubSubIdx >= 0 Then
+        CancelSubSubItemEditMode
+        Exit Sub
+    End If
+    
+    If mEditingSubSubIdx >= 0 Then
+        Call btnEditSubItem_Click    ' assuming its Click handler gets a
+                                      ' mDrilledSubIdx-aware branch too - see below
+        ConfirmPendingChanges = (mEditingSubSubIdx = -1)
+        Exit Function
     End If
 
     If mEditingSubIdx >= 0 Then
