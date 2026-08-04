@@ -58,6 +58,8 @@ Private Const TYPE_DICTIONARY As String = "DICTIONARY" ' fixed 2-column table
 Private TABLE_SEP As String  ' = Chr(31), replaces the old literal pipe character - separates fields/columns within a row
 Private LIST_SEP As String   ' = Chr(30), replaces the old literal tilde character - separates sub-items / column names within a field
 
+Private Const LIST_DISPLAY_MAX As Long = 88
+
 ' Data store: parallel arrays indexed by section
 Private mSecNames() As String        ' display name
 Private mSecTypes() As String        ' one of the TYPE_ constants above
@@ -189,6 +191,16 @@ End Sub
 Private Sub lblColCount_Click()
 
 End Sub
+
+Private Function TruncateForDisplay(ByVal txt As String) As String
+
+    If Len(txt) > LIST_DISPLAY_MAX Then
+        TruncateForDisplay = Left(txt, LIST_DISPLAY_MAX) & "..."
+    Else
+        TruncateForDisplay = txt
+    End If
+    
+End Function
 
 Private Sub lblSectionHelp_Click()
     On Error GoTo ErrHandler
@@ -1051,21 +1063,19 @@ Private Sub lstSections_Click()
 
     If Not mDeveloperMode And HasUnconfirmedContent() Then
 
-        ' Capture which section the user clicked BEFORE showing the
-        ' prompt - a re-entrant Click during the MsgBox call could
-        ' shift lstSections.ListIndex under us otherwise
-        Dim targetSection As Long
-        targetSection = lstSections.ListIndex + 1
-
         Dim resp As VbMsgBoxResult
         resp = MsgBox(BuildUnconfirmedPromptText(), vbYesNoCancel + vbQuestion, "Unsaved Text")
 
         Select Case resp
             Case vbCancel
-                ' Snap back to current section; hold mLoading the whole time
-                ' so the programmatic ListIndex change doesn't re-fire this sub
                 mLoading = True
                 lstSections.ListIndex = mCurrentSection - 1
+                ' Deliberately do NOT set mLoading = False here -
+                ' MSForms queues a Click event for the snap-back and
+                ' releases it the moment mLoading goes False. Instead
+                ' we let the sub exit with mLoading = True and reset
+                ' it in a DoEvents+timer pattern via a helper sub.
+                DoEvents
                 mLoading = False
                 Exit Sub
 
@@ -1073,22 +1083,15 @@ Private Sub lstSections_Click()
                 If Not ConfirmPendingChanges() Then
                     mLoading = True
                     lstSections.ListIndex = mCurrentSection - 1
+                    DoEvents
                     mLoading = False
                     Exit Sub
                 End If
-                ' Confirmed successfully - restore the target the user
-                ' originally clicked, in case ConfirmPendingChanges
-                ' moved lstSections.ListIndex as a side effect
-                mLoading = True
-                lstSections.ListIndex = targetSection - 1
-                mLoading = False
 
             Case vbNo
-                ' Discard - restore the target click
-                mLoading = True
-                lstSections.ListIndex = targetSection - 1
-                mLoading = False
+                ' fall through
         End Select
+
     End If
 
     CancelAnyActiveEditMode
@@ -1102,7 +1105,6 @@ ErrHandler:
     HandleFormError "lstSections_Click"
 
 End Sub
-
 Private Sub UpdateSectionButtons()
     On Error GoTo ErrHandler
 
@@ -1686,6 +1688,8 @@ End Sub
 
 Private Sub ShowSection(ByVal idx As Long)
     On Error GoTo ErrHandler
+    
+    lstSections.ListIndex = idx - 1
 
     If idx < 1 Or idx > mSecCount Then Exit Sub
 
@@ -2077,8 +2081,7 @@ Private Sub RefreshSubItems()
                     Dim txt As String
                     txt = Trim(subs(i))
                     If txt <> "" Then
-                        If Len(txt) > 80 Then txt = Left(txt, 77) & "..."
-                        lstSubItems.AddItem txt
+                        lstSubItems.AddItem TruncateForDisplay(txt)
                     End If
                 Next i
             End If
@@ -2095,28 +2098,27 @@ End Sub
 
 Private Sub RefreshItemsDisplay()
     On Error GoTo ErrHandler
-
+    
     lstItems.Clear
     
     Dim i As Long
     For i = 1 To mSecItems(mCurrentSection).count
+    
         Dim rawVal As String
         rawVal = mSecItems(mCurrentSection)(i)
+        
         If mSecHasSubItems(mCurrentSection) Or InStr(rawVal, TABLE_SEP) > 0 Then
-            lstItems.AddItem Split(rawVal, TABLE_SEP)(0)
+            lstItems.AddItem TruncateForDisplay(Split(rawVal, TABLE_SEP)(0))
         Else
-            Dim displayVal As String
-            displayVal = rawVal
-            If Len(displayVal) > 80 Then displayVal = Left(displayVal, 77) & "..."
-            lstItems.AddItem displayVal
+            lstItems.AddItem TruncateForDisplay(rawVal)
         End If
     Next i
-
+    
     Exit Sub
 
 ErrHandler:
     HandleFormError "RefreshItemsDisplay"
-
+    
 End Sub
 
 '====================================================
@@ -2420,11 +2422,7 @@ Private Sub btnAddItem_Click()
                             existingSubs = existingSubs & LIST_SEP & cleanSubLine
                         End If
 
-                        Dim subDisplayVal As String
-                        subDisplayVal = cleanSubLine
-                        If Len(subDisplayVal) > 80 Then subDisplayVal = Left(subDisplayVal, 77) & "..."
-                        lstSubItems.AddItem subDisplayVal
-
+                        lstSubItems.AddItem TruncateForDisplay(cleanSubLine)
                         subAddedAny = True
                     End If
                 Next subLineIdx
@@ -2877,8 +2875,10 @@ Private Sub btnAddSubItem_Click()
         Else
             existingSubs = ""
         End If
+        
         Dim lineIdx As Long
         For lineIdx = 0 To UBound(rawLines)
+        
             Dim cleanLine As String
             cleanLine = Trim(rawLines(lineIdx))
             If cleanLine <> "" Then
@@ -2887,19 +2887,20 @@ Private Sub btnAddSubItem_Click()
                 Else
                     existingSubs = existingSubs & LIST_SEP & cleanLine
                 End If
-                Dim displayVal As String
-                displayVal = cleanLine
-                If Len(displayVal) > 80 Then displayVal = Left(displayVal, 77) & "..."
-                lstSubItems.AddItem displayVal
+                
+                lstSubItems.AddItem TruncateForDisplay(txt)
                 addedAny = True
             End If
         Next lineIdx
+        
         If Not addedAny Then
             MsgBox "Please type or paste at least one sub-item before adding.", vbExclamation
             Exit Sub
         End If
+        
         current = mainPart & TABLE_SEP & existingSubs
         Dim newCol2 As New Collection
+        
         Dim j As Long
         For j = 1 To mSecItems(mCurrentSection).count
             If j = itemIdx Then
@@ -3957,6 +3958,7 @@ Private Sub RefreshRowList(ByVal idx As Long)
         parts = Split(mSecItems(idx)(i), TABLE_SEP)
         Dim display As String
         display = ""
+        
         Dim j As Long
         For j = 0 To UBound(parts)
             Dim val As String
@@ -3974,7 +3976,8 @@ Private Sub RefreshRowList(ByVal idx As Long)
         If i = 1 And mSecHasHeader(idx) Then
             display = "« " & display & " »"
         End If
-        lstRows.AddItem display
+        
+        lstRows.AddItem TruncateForDisplay(display)
     Next i
     
     If mSecTypes(idx) = TYPE_TABLE Then
@@ -3986,7 +3989,7 @@ Private Sub RefreshRowList(ByVal idx As Long)
             If Not chkHasHeader.Enabled Then
                 chkHasHeader.Value = False
                 mSecHasHeader(idx) = False
-                chkHasHeader.ControlTipText = "Cannot change - add at least one row first"
+                chkHasHeader.ControlTipText = "Cannot change — add at least one row first"
             Else
                 chkHasHeader.ControlTipText = "Check if the first row contains headers"
             End If
@@ -5079,7 +5082,10 @@ Private Sub WriteToSheet(ByVal ws As Worksheet)
                     Dim depth As Long
                     depth = MaxSubDepth(i)
                     WriteNestedToSheet ws, i, currentCol, depth
-                    currentCol = currentCol + 1 + depth
+                    ' Always advance by at least 2 (main col + Bullet1)
+                    ' even when no sub-items exist yet - WriteNestedToSheet
+                    ' always writes the Bullet1 header so it must be skipped
+                    currentCol = currentCol + 1 + IIf(depth > 0, depth, 1)
                 Else
                     WriteListToSheet ws, i, currentCol
                     currentCol = currentCol + 1
@@ -5490,18 +5496,30 @@ Private Function ConfirmDiscard() As Boolean
         Exit Function
     End If
 
-    ' Dev mode: skip confirmation
     If mDeveloperMode Then
         ConfirmDiscard = True
         Exit Function
     End If
 
     Dim resp As VbMsgBoxResult
-    resp = MsgBox("Any unsaved changes will be lost." & vbCrLf & vbCrLf & _
-                  "Are you sure you want to close without saving?", _
-                  vbYesNo + vbExclamation, "Discard Changes?")
+    resp = MsgBox("Closing SOD Editor form." & vbCrLf & vbCrLf & _
+                  "Do you want to save changes to sheet before exiting?" & vbCrLf & _
+                  "Otherwise any unsaved changes will be discarded.", _
+                  vbYesNoCancel + vbExclamation, "Save Before Closing?")
 
-    ConfirmDiscard = (resp = vbYes)
+    Select Case resp
+        Case vbYes
+            Call btnSave_Click
+            ' Only close if the save actually completed - if the user
+            ' cancelled out of the overwrite confirmation inside
+            ' btnSave_Click, mJustSaved will still be False
+            ConfirmDiscard = mJustSaved
+        Case vbNo
+            ConfirmDiscard = True
+        Case vbCancel
+            ConfirmDiscard = False
+    End Select
+
     Exit Function
 
 ErrHandler:
