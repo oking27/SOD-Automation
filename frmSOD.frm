@@ -109,6 +109,7 @@ Private mRowEditSnapshotSec As Long
 
 Private mDeveloperMode As Boolean      ' when True, removes guardrails and enables debug output
 Private mSkipConfirmPrompts As Boolean   ' suppresses nested duplicate prompts when the caller already confirmed
+Private mShowingUnconfirmedPrompt As Boolean
 
 '====================================================
 ' CENTRAL ERROR HANDLER
@@ -489,7 +490,7 @@ Private Function BuildUnconfirmedPromptText() As String
 
         Case TYPE_LIST
             If Len(Trim(txtItem.Text)) > 0 Then
-                BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtItem.Text) & """ to """ & mSecNames(mCurrentSection) & """?" & vbCrLf & vbCrLf & _
+                BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtItem.Text) & """ to " & mSecNames(mCurrentSection) & "?" & vbCrLf & vbCrLf & _
                     "Otherwise it will be discarded."
                 Exit Function
 
@@ -1043,19 +1044,26 @@ Private Sub lstSections_Click()
     If mLoading Then Exit Sub
     
     If lstSections.ListIndex < 0 Then Exit Sub
-
-    ' If in section edit/reorder mode, don't change what's displayed
+    
     If mEditingSectionIdx > 0 Then Exit Sub
+    
+    If lstSections.ListIndex = mCurrentSection - 1 Then Exit Sub
 
-    ' Unless Dev Mode has waived the guardrails, offer to confirm/add
-    ' pending changes before discarding them via a section switch
     If Not mDeveloperMode And HasUnconfirmedContent() Then
+
+        ' Capture which section the user clicked BEFORE showing the
+        ' prompt - a re-entrant Click during the MsgBox call could
+        ' shift lstSections.ListIndex under us otherwise
+        Dim targetSection As Long
+        targetSection = lstSections.ListIndex + 1
 
         Dim resp As VbMsgBoxResult
         resp = MsgBox(BuildUnconfirmedPromptText(), vbYesNoCancel + vbQuestion, "Unsaved Text")
 
         Select Case resp
             Case vbCancel
+                ' Snap back to current section; hold mLoading the whole time
+                ' so the programmatic ListIndex change doesn't re-fire this sub
                 mLoading = True
                 lstSections.ListIndex = mCurrentSection - 1
                 mLoading = False
@@ -1068,12 +1076,19 @@ Private Sub lstSections_Click()
                     mLoading = False
                     Exit Sub
                 End If
-                ' else fall through and continue below, changes now saved
+                ' Confirmed successfully - restore the target the user
+                ' originally clicked, in case ConfirmPendingChanges
+                ' moved lstSections.ListIndex as a side effect
+                mLoading = True
+                lstSections.ListIndex = targetSection - 1
+                mLoading = False
 
             Case vbNo
-                ' fall through and continue below, changes will be discarded
+                ' Discard - restore the target click
+                mLoading = True
+                lstSections.ListIndex = targetSection - 1
+                mLoading = False
         End Select
-
     End If
 
     CancelAnyActiveEditMode
@@ -4389,7 +4404,12 @@ Private Sub LoadFromSheet()
                         End If
                     End If
 
-                    mSecHasSubItems(secIdx) = hasSubs
+                    If IsBuiltInSubItemSection(mSecNames(secIdx)) Then
+                        mSecHasSubItems(secIdx) = True
+                    Else
+                        mSecHasSubItems(secIdx) = hasSubs
+                    End If
+                    
                     If hasSubs Then
                         LoadNestedColumns tbl, col, secIdx
                         ' Skip past every contiguous BulletN column
@@ -4969,11 +4989,31 @@ Private Sub btnSave_Click()
     Dim ws As Worksheet
     Set ws = ActiveSheet
 
+    ' Check for unconfirmed text before anything else - same
+    ' guardrail as section-switching, skipped in Dev Mode
+    If Not mDeveloperMode And HasUnconfirmedContent() Then
+
+        Dim saveResp As VbMsgBoxResult
+        saveResp = MsgBox(BuildUnconfirmedPromptText(), vbYesNoCancel + vbQuestion, "Unsaved Text")
+
+        Select Case saveResp
+            Case vbCancel
+                Exit Sub
+            Case vbYes
+                If Not ConfirmPendingChanges() Then Exit Sub
+                ' fall through to save
+            Case vbNo
+                ' discard the pending text and continue to save
+                CancelAnyActiveEditMode
+        End Select
+
+    End If
+
     If ws.ListObjects.count > 0 Then
         If ws.ListObjects(1).ListRows.count > 0 Then
-        
+
             Dim resp As VbMsgBoxResult
-            resp = MsgBox("Saving will overwrite the previous data on the sheet with the new data from this form." & vbCrLf & vbCrLf & _
+            resp = MsgBox("Saving will overwrite the previous data on the sheet with the new data from this form. You may close the editor after saving." & vbCrLf & vbCrLf & _
                           "Continue?", vbYesNo + vbExclamation, "Overwrite Warning")
             If resp = vbNo Then Exit Sub
         End If
