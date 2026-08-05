@@ -123,8 +123,9 @@ Private mDrilledSubIdx As Long       ' -1 = not drilled in, else 0-based index o
 Private mEditingSubSubIdx As Long    ' -1 = not editing, else 0-based index of the sub-sub-item being edited within the drilled-into sub-item
                                       
 Private mSubSubEditSnapshotSec As Long
-Private mSubSubEditSnapshotSubIdx As Long   ' which sub-item (lstSubItems index) we were
-                                              ' drilled into when the edit snapshot was taken
+Private mSubSubEditSnapshotSubIdx As Long   ' which sub-item (lstSubItems index) we were drilled into when the edit snapshot was taken
+
+Private mSecHasSubSubItems() As Boolean   ' TYPE_LIST only, and only meaningful when mSecHasSubItems(i) = True
                                               
 
 
@@ -257,6 +258,91 @@ Private Sub DrillOutOfSub()
 
 ErrHandler:
     HandleFormError "DrillOutOfSub"
+
+End Sub
+
+Private Sub chkSubSubItems_Click()
+    On Error GoTo ErrHandler
+
+    If mLoading Then Exit Sub
+
+    If mSecTypes(mCurrentSection) <> TYPE_LIST Then Exit Sub
+    If Not mSecHasSubItems(mCurrentSection) Then Exit Sub   ' shouldn't be reachable if enabled state is correct, but guard anyway
+
+    If chkSubSubItems.Value Then
+        ' Switching ON: nothing needs to change about existing data -
+        ' sub-items just gain the *option* of having their own children
+        mSecHasSubSubItems(mCurrentSection) = True
+    Else
+        ' Switching OFF is destructive - warn if any sub-item actually
+        ' has sub-sub-item data that would be discarded
+        Dim hasAnySubSubs As Boolean
+        hasAnySubSubs = False
+
+        Dim i As Long, k As Long
+        For i = 1 To mSecItems(mCurrentSection).count
+            Dim parts() As String
+            parts = Split(mSecItems(mCurrentSection)(i), TABLE_SEP)
+            If UBound(parts) >= 1 Then
+                Dim subs() As String
+                subs = Split(parts(1), LIST_SEP)
+                For k = 0 To UBound(subs)
+                    If InStr(subs(k), SUBSUB_SEP) > 0 Then
+                        hasAnySubSubs = True
+                        Exit For
+                    End If
+                Next k
+            End If
+            If hasAnySubSubs Then Exit For
+        Next i
+
+        If hasAnySubSubs Then
+            Dim resp As VbMsgBoxResult
+            resp = MsgBox("Turning off sub-details will permanently remove all sub-detail data for this section." & vbCrLf & vbCrLf & _
+                          "Continue?", vbYesNo + vbExclamation, "Remove Sub-details")
+
+            If resp = vbNo Then
+                mLoading = True
+                chkSubSubItems.Value = True
+                mLoading = False
+                Exit Sub
+            End If
+        End If
+
+        ' Strip everything after SUBSUB_SEP from every sub-item, in every item
+        Dim newCol As New Collection
+        Dim j As Long
+        For j = 1 To mSecItems(mCurrentSection).count
+            Dim parts2() As String
+            parts2 = Split(mSecItems(mCurrentSection)(j), TABLE_SEP)
+
+            If UBound(parts2) >= 1 Then
+                Dim subs2() As String
+                subs2 = Split(parts2(1), LIST_SEP)
+                Dim m As Long
+                For m = 0 To UBound(subs2)
+                    If InStr(subs2(m), SUBSUB_SEP) > 0 Then
+                        subs2(m) = Split(subs2(m), SUBSUB_SEP)(0)
+                    End If
+                Next m
+                newCol.Add parts2(0) & TABLE_SEP & Join(subs2, LIST_SEP)
+            Else
+                newCol.Add mSecItems(mCurrentSection)(j)
+            End If
+        Next j
+
+        Set mSecItems(mCurrentSection) = newCol
+        mSecHasSubSubItems(mCurrentSection) = False
+
+        ' If we were drilled in when this got switched off, back out
+        If mDrilledSubIdx >= 0 Then DrillOutOfSub
+    End If
+
+    ShowListSection mCurrentSection
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "chkSubSubItems_Click"
 
 End Sub
 
@@ -523,6 +609,7 @@ Private Sub InitSections()
     ReDim mSecCols(1 To mSecCount)
     ReDim mSecHasHeader(1 To mSecCount)
     ReDim mSecHasSubItems(1 To mSecCount)
+    ReDim mSecHasSubSubItems(1 To mSecCount)
 
     mSecNames(1) = SEC_TITLE
     mSecNames(2) = SEC_GROUP
@@ -552,6 +639,7 @@ Private Sub InitSections()
         mSecCols(i) = ""
         mSecHasHeader(i) = False
         mSecHasSubItems(i) = IsBuiltInSubItemSection(mSecNames(i))
+        mSecHasSubSubItems(i) = False          ' No built-in section defaults to 3 levels
         Set mSecItems(i) = New Collection
     Next i
 
@@ -1032,30 +1120,28 @@ End Sub
 Private Sub UpdateSubItemButtonsBasedOnFocus()
     On Error GoTo ErrHandler
 
+    ' NEW: drilled-in mode takes priority and short-circuits into
+    ' the sub-sub-item logic, which mirrors the block below almost exactly
     If mDrilledSubIdx >= 0 Then
-        UpdateSubSubItemButtonsBasedOnFocus
+        UpdateSubSubItemButtonsBasedOnFocus   ' new sibling function, same pattern
         Exit Sub
     End If
 
-    ' BLOCK: If Item is being edited, disable all subitem buttons
+    ' ... existing body, completely unchanged below this point ...
     If mEditingItemIdx > 0 Then
         btnAddSubItem.Enabled = False
         btnEditSubItem.Enabled = False
         btnRemoveSubItem.Enabled = False
-        btnDrillIntoSub.Enabled = False        ' NEW
         Exit Sub
     End If
 
-    ' BLOCK: If no parent item selected, disable everything
     If lstItems.ListIndex < 0 Then
         btnAddSubItem.Enabled = False
         btnEditSubItem.Enabled = False
         btnRemoveSubItem.Enabled = False
-        btnDrillIntoSub.Enabled = False        ' NEW
         Exit Sub
     End If
 
-    ' EDIT MODE: Position-based enabling
     If mEditingSubIdx >= 0 Then
         Dim parentIdx As Long
         parentIdx = lstItems.ListIndex + 1
@@ -1066,7 +1152,6 @@ Private Sub UpdateSubItemButtonsBasedOnFocus()
             btnAddSubItem.Enabled = False
             btnEditSubItem.Enabled = False
             btnRemoveSubItem.Enabled = False
-            btnDrillIntoSub.Enabled = False    ' NEW - can't drill in mid Move Up/Down
             Exit Sub
         End If
 
@@ -1075,7 +1160,6 @@ Private Sub UpdateSubItemButtonsBasedOnFocus()
         btnAddSubItem.Enabled = (mEditingSubIdx > 0)
         btnEditSubItem.Enabled = True
         btnRemoveSubItem.Enabled = (mEditingSubIdx < UBound(subs))
-        btnDrillIntoSub.Enabled = False        ' NEW - reorder mode, not a stable selection
         Exit Sub
     End If
 
@@ -1085,7 +1169,7 @@ Private Sub UpdateSubItemButtonsBasedOnFocus()
     hasSelection = (lstSubItems.ListIndex >= 0)
     btnEditSubItem.Enabled = hasSelection
     btnRemoveSubItem.Enabled = hasSelection
-    btnDrillIntoSub.Enabled = hasSelection     ' NEW - this is the actual gate you asked for
+    btnDrillIntoSub.Enabled = hasSelection And chkSubSubItems.Value
     Exit Sub
 
 ErrHandler:
@@ -1096,10 +1180,7 @@ End Sub
 Private Sub UpdateSubSubItemButtonsBasedOnFocus()
     On Error GoTo ErrHandler
 
-    ' Same buttons (btnAddSubItem/btnEditSubItem/btnRemoveSubItem) are
-    ' being repurposed here - captions were already swapped when we drilled in
-
-    If lstItems.ListIndex < 0 Or lstSubItems.ListIndex < 0 Then
+    If lstItems.ListIndex < 0 Then
         btnAddSubItem.Enabled = False
         btnEditSubItem.Enabled = False
         btnRemoveSubItem.Enabled = False
@@ -1114,12 +1195,10 @@ Private Sub UpdateSubSubItemButtonsBasedOnFocus()
     Dim subs() As String
     subs = Split(parts(1), LIST_SEP)
 
-    ' The sub-item we drilled into is subs(mDrilledSubIdx). It may itself
-    ' carry SUBSUB_SEP-delimited children after a SUBSUB_SEP marker.
     Dim subParts() As String
     subParts = Split(subs(mDrilledSubIdx), SUBSUB_SEP)
 
-    If mEditingSubIdx >= 0 Then   ' reusing mEditingSubIdx as the edit cursor here too
+    If mEditingSubSubIdx >= 0 Then
         If UBound(subParts) < 1 Then
             btnAddSubItem.Enabled = False
             btnEditSubItem.Enabled = False
@@ -1129,9 +1208,9 @@ Private Sub UpdateSubSubItemButtonsBasedOnFocus()
 
         Dim subsubs() As String
         subsubs = Split(subParts(1), LIST_SEP)
-        btnAddSubItem.Enabled = (mEditingSubIdx > 0)
+        btnAddSubItem.Enabled = (mEditingSubSubIdx > 0)
         btnEditSubItem.Enabled = True
-        btnRemoveSubItem.Enabled = (mEditingSubIdx < UBound(subsubs))
+        btnRemoveSubItem.Enabled = (mEditingSubSubIdx < UBound(subsubs))
         Exit Sub
     End If
 
@@ -1378,7 +1457,7 @@ End Function
 Private Sub SwapSections(ByVal idx1 As Long, ByVal idx2 As Long)
 
     Dim tmpName As String, tmpType As String, tmpData As String, tmpCols As String
-    Dim tmpHasHeader As Boolean, tmpHasSubItems As Boolean
+    Dim tmpHasHeader As Boolean, tmpHasSubItems As Boolean, tmpHasSubSubItems As Boolean
     Dim tmpItems As Collection
 
     tmpName = mSecNames(idx1): mSecNames(idx1) = mSecNames(idx2): mSecNames(idx2) = tmpName
@@ -1387,6 +1466,7 @@ Private Sub SwapSections(ByVal idx1 As Long, ByVal idx2 As Long)
     tmpCols = mSecCols(idx1): mSecCols(idx1) = mSecCols(idx2): mSecCols(idx2) = tmpCols
     tmpHasHeader = mSecHasHeader(idx1): mSecHasHeader(idx1) = mSecHasHeader(idx2): mSecHasHeader(idx2) = tmpHasHeader
     tmpHasSubItems = mSecHasSubItems(idx1): mSecHasSubItems(idx1) = mSecHasSubItems(idx2): mSecHasSubItems(idx2) = tmpHasSubItems
+    tmpHasSubSubItems = mSecHasSubSubItems(idx1): mSecHasSubSubItems(idx1) = mSecHasSubSubItems(idx2): mSecHasSubSubItems(idx2) = tmpHasSubSubItems
 
     Set tmpItems = mSecItems(idx1)
     Set mSecItems(idx1) = mSecItems(idx2)
@@ -1412,6 +1492,7 @@ Private Sub RemoveSectionAt(ByVal secIdx As Long)
         mSecCols(i) = mSecCols(i + 1)
         mSecHasHeader(i) = mSecHasHeader(i + 1)
         mSecHasSubItems(i) = mSecHasSubItems(i + 1)
+        mSecHasSubSubItems(i) = mSecHasSubSubItems(i + 1)
         Set mSecItems(i) = mSecItems(i + 1)
     Next i
 
@@ -1422,6 +1503,7 @@ Private Sub RemoveSectionAt(ByVal secIdx As Long)
     ReDim Preserve mSecCols(1 To mSecCount)
     ReDim Preserve mSecHasHeader(1 To mSecCount)
     ReDim Preserve mSecHasSubItems(1 To mSecCount)
+    ReDim Preserve mSecHasSubSubItems(1 To mSecCount)
     ReDim Preserve mSecItems(1 To mSecCount)
 
 End Sub
@@ -1694,6 +1776,7 @@ Private Sub CreateNewSection(ByVal secType As String)
         ReDim Preserve mSecCols(1 To mSecCount)
         ReDim Preserve mSecHasHeader(1 To mSecCount)
         ReDim Preserve mSecHasSubItems(1 To mSecCount)
+        ReDim Preserve mSecHasSubSubItems(1 To mSecCount)
 
         mSecNames(mSecCount) = secName
         mSecTypes(mSecCount) = finalType
@@ -1701,6 +1784,7 @@ Private Sub CreateNewSection(ByVal secType As String)
         mSecCols(mSecCount) = ""
         mSecHasHeader(mSecCount) = False
         mSecHasSubItems(mSecCount) = False
+        mSecHasSubSubItems(mSecCount) = False
         Set mSecItems(mSecCount) = New Collection
         
         insertIdx = mSecCount
@@ -1801,6 +1885,7 @@ Private Sub InsertSectionAt(ByVal insertIdx As Long, ByVal secName As String, By
     ReDim Preserve mSecCols(1 To mSecCount)
     ReDim Preserve mSecHasHeader(1 To mSecCount)
     ReDim Preserve mSecHasSubItems(1 To mSecCount)
+    ReDim Preserve mSecHasSubSubItems(1 To mSecCount)
     
     ' Shift everything at insertIdx and beyond down one position
     Dim i As Long
@@ -1812,6 +1897,7 @@ Private Sub InsertSectionAt(ByVal insertIdx As Long, ByVal secName As String, By
         mSecCols(i + 1) = mSecCols(i)
         mSecHasHeader(i + 1) = mSecHasHeader(i)
         mSecHasSubItems(i + 1) = mSecHasSubItems(i)
+        mSecHasSubSubItems(i + 1) = mSecHasSubSubItems(i)
     Next i
     
     ' Insert new section at insertIdx
@@ -1821,6 +1907,7 @@ Private Sub InsertSectionAt(ByVal insertIdx As Long, ByVal secName As String, By
     mSecCols(insertIdx) = ""
     mSecHasHeader(insertIdx) = False
     mSecHasSubItems(insertIdx) = GetBuiltInHasSubItems(secName)
+    mSecHasSubSubItems(insertIdx) = False   ' No built-in ever defaults to 3 levels
     Set mSecItems(insertIdx) = New Collection
     
     Exit Sub
@@ -2013,8 +2100,7 @@ Private Sub ShowListSection(ByVal idx As Long)
     mCurrentSection = idx
 
     RefreshItemsDisplay
-    
-    ' Select the first item by default
+
     If lstItems.ListCount > 0 Then
         lstItems.ListIndex = 0
     End If
@@ -2026,9 +2112,6 @@ Private Sub ShowListSection(ByVal idx As Long)
     txtItem.Visible = True
     txtItem.Text = ""
 
-    ' Checkbox: visible only for user-created sections.
-    ' Hidden for built-ins that always have sub-items (Roles/Steps/Resources)
-    ' and for built-ins that never have sub-items (Objectives/KPIs).
     Dim isBuiltInWithSubs As Boolean
     Dim isBuiltInWithoutSubs As Boolean
     isBuiltInWithSubs = IsBuiltInSubItemSection(mSecNames(idx))
@@ -2039,15 +2122,12 @@ Private Sub ShowListSection(ByVal idx As Long)
     chkSubItems.Value = mSecHasSubItems(idx)
     mLoading = False
 
-    ' Built-in sections show the checkbox for reference, but it's
-    ' locked - Roles/Steps/Resources always have sub-items,
-    ' Objectives/KPIs never do, and neither should be user-toggleable.
     If mDeveloperMode Then
         chkSubItems.Enabled = True
         chkSubItems.ControlTipText = "DEV: Unlocked for testing"
     Else
         chkSubItems.Enabled = Not (isBuiltInWithSubs Or isBuiltInWithoutSubs)
-        
+
         If Not chkSubItems.Enabled Then
             chkSubItems.ControlTipText = "Cannot change - this is a built-in section"
         Else
@@ -2055,12 +2135,6 @@ Private Sub ShowListSection(ByVal idx As Long)
         End If
     End If
 
-    If Not chkSubItems.Enabled Then
-        chkSubItems.ControlTipText = "Cannot change - this is a built-in section"
-    Else
-        chkSubItems.ControlTipText = "Check if items should have sub-items"
-    End If
-    
     Dim showSubs As Boolean
     showSubs = mSecHasSubItems(idx)
     lblSubItems.Visible = showSubs
@@ -2069,6 +2143,18 @@ Private Sub ShowListSection(ByVal idx As Long)
     btnRemoveSubItem.Visible = showSubs
     btnEditSubItem.Visible = showSubs
     txtSubItem.Visible = showSubs
+
+    ' NEW: chkSubSubItems visibility mirrors showSubs (no point showing
+    ' "does a sub-item have children" when there are no sub-items at all).
+    ' Enabled state additionally requires chkSubItems to actually be checked.
+    chkSubSubItems.Visible = showSubs
+    mLoading = True
+    chkSubSubItems.Value = mSecHasSubSubItems(idx)
+    mLoading = False
+    chkSubSubItems.Enabled = showSubs
+    If showSubs Then
+        chkSubSubItems.ControlTipText = "Check if sub-items should have their own sub-details"
+    End If
 
     If showSubs Then
         lstSubItems.Clear
@@ -2082,19 +2168,21 @@ Private Sub ShowListSection(ByVal idx As Long)
             UpdateSubItemControls
             RefreshSubItems
         Else
-            UpdateSubItemsLabel     ' resets label to "Sub-items:" default
-            UpdateSubItemControls   ' correctly grays out txtSubItem
+            UpdateSubItemsLabel
+            UpdateSubItemControls
         End If
     Else
-        ' Defensive reset: controls are invisible, but keep enabled
-        ' state and contents clean rather than leaving stale state
-        ' from whatever section was shown previously
         lstSubItems.Clear
         txtSubItem.Enabled = False
         btnAddSubItem.Enabled = False
         btnEditSubItem.Enabled = False
         btnRemoveSubItem.Enabled = False
     End If
+
+    ' Drill-toggle visibility - only ever shown alongside sub-items, and its Enabled state (gated on chkSubSubItems AND a selection) is handled inside UpdateSubItemButtonsBasedOnFocus, not here
+    ' Visible only when sub-sub-items are actually enabled for this section
+    btnDrillIntoSub.Visible = showSubs And mSecHasSubSubItems(idx)
+    If mDrilledSubIdx >= 0 Then DrillOutOfSub   ' defensive reset on section switch
 
     UpdateItemControls
     UpdateItemButtonsBasedOnFocus
@@ -2989,6 +3077,65 @@ ErrHandler:
 
 End Sub
 
+Private Sub ReorderSubSubItem(ByRef subSubIndex As Long, _
+                               ByVal direction As Long, _
+                               ByVal itemIdx As Long, _
+                               ByVal subIdx As Long)
+    On Error GoTo ErrHandler
+
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
+    Dim subs() As String
+    subs = Split(parts(1), LIST_SEP)
+
+    Dim subParts() As String
+    If InStr(subs(subIdx), SUBSUB_SEP) = 0 Then Exit Sub
+    subParts = Split(subs(subIdx), SUBSUB_SEP)
+
+    Dim subsubs() As String
+    subsubs = Split(subParts(1), LIST_SEP)
+
+    If direction = -1 And subSubIndex <= 0 Then Exit Sub
+    If direction = 1 And subSubIndex >= UBound(subsubs) Then Exit Sub
+
+    SaveEditedSubSubItemTextInPlace itemIdx, subIdx
+    PushUndo
+
+    ' Re-split after the save, same defensive re-read pattern as ReorderSubItem
+    parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
+    subs = Split(parts(1), LIST_SEP)
+    subParts = Split(subs(subIdx), SUBSUB_SEP)
+    subsubs = Split(subParts(1), LIST_SEP)
+
+    Dim tmp As String
+    tmp = subsubs(subSubIndex)
+    subsubs(subSubIndex) = subsubs(subSubIndex + direction)
+    subsubs(subSubIndex + direction) = tmp
+
+    subs(subIdx) = subParts(0) & SUBSUB_SEP & Join(subsubs, LIST_SEP)
+
+    Dim newItemStr As String
+    newItemStr = parts(0) & TABLE_SEP & Join(subs, LIST_SEP)
+
+    Dim newCol As New Collection
+    Dim i As Long
+    For i = 1 To mSecItems(mCurrentSection).count
+        If i = itemIdx Then
+            newCol.Add newItemStr
+        Else
+            newCol.Add mSecItems(mCurrentSection)(i)
+        End If
+    Next i
+
+    Set mSecItems(mCurrentSection) = newCol
+    subSubIndex = subSubIndex + direction
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "ReorderSubSubItem"
+
+End Sub
+
 Private Sub SaveEditedItemTextInPlace()
 
     Dim newItem As String
@@ -3519,8 +3666,8 @@ Private Sub AddSubSubItem()
     Dim parentIdx As Long
     parentIdx = lstItems.ListIndex + 1
 
+    ' Move Up branch:
     If mEditingSubSubIdx >= 0 Then
-        ' EDIT MODE: Move Up (mirrors the mEditingSubIdx >= 0 branch above)
         ReorderSubSubItem mEditingSubSubIdx, -1, parentIdx, mDrilledSubIdx
         RefreshSubSubItemsAfterReorder
         Exit Sub
@@ -3612,6 +3759,7 @@ Private Sub RemoveSubSubItem()
     Dim parentIdx As Long
     parentIdx = lstItems.ListIndex + 1
 
+    ' Move Down branch:
     If mEditingSubSubIdx >= 0 Then
         ReorderSubSubItem mEditingSubSubIdx, 1, parentIdx, mDrilledSubIdx
         RefreshSubSubItemsAfterReorder
@@ -3879,6 +4027,24 @@ Private Sub RefreshSubItemsAfterReorder()
 
 ErrHandler:
     HandleFormError "RefreshSubItemsAfterReorder"
+
+End Sub
+
+Private Sub RefreshSubSubItemsAfterReorder()
+    On Error GoTo ErrHandler
+
+    RefreshSubSubItems
+
+    mLoading = True
+    lstSubItems.ListIndex = mEditingSubSubIdx
+    mLoading = False
+
+    UpdateSubSubItemButtonsBasedOnFocus
+    txtSubItem.SetFocus
+    Exit Sub
+
+ErrHandler:
+    HandleFormError "RefreshSubSubItemsAfterReorder"
 
 End Sub
 
@@ -5193,9 +5359,9 @@ End Function
 
 Private Sub AddDynamicSection(ByVal secName As String, ByVal secType As String)
     On Error GoTo ErrHandler
-
+    
     mSecCount = mSecCount + 1
-
+    
     If mSecCount = 1 Then
         ReDim mSecNames(1 To 1)
         ReDim mSecTypes(1 To 1)
@@ -5204,6 +5370,7 @@ Private Sub AddDynamicSection(ByVal secName As String, ByVal secType As String)
         ReDim mSecCols(1 To 1)
         ReDim mSecHasHeader(1 To 1)
         ReDim mSecHasSubItems(1 To 1)
+        ReDim mSecHasSubSubItems(1 To 1)
     Else
         ReDim Preserve mSecNames(1 To mSecCount)
         ReDim Preserve mSecTypes(1 To mSecCount)
@@ -5212,21 +5379,23 @@ Private Sub AddDynamicSection(ByVal secName As String, ByVal secType As String)
         ReDim Preserve mSecCols(1 To mSecCount)
         ReDim Preserve mSecHasHeader(1 To mSecCount)
         ReDim Preserve mSecHasSubItems(1 To mSecCount)
+        ReDim Preserve mSecHasSubSubItems(1 To mSecCount)
     End If
-
+    
     mSecNames(mSecCount) = secName
     mSecTypes(mSecCount) = secType
     mSecData(mSecCount) = ""
     mSecCols(mSecCount) = ""
     mSecHasHeader(mSecCount) = False
     mSecHasSubItems(mSecCount) = False
+    mSecHasSubSubItems(mSecCount) = False
     Set mSecItems(mSecCount) = New Collection
-
+    
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "AddDynamicSection"
-
+    
 End Sub
 
 '====================================================
@@ -6064,11 +6233,13 @@ Private Sub btnCancel_Click()
         Exit Sub
     End If
     
+    ' Inside btnCancel_Click:
     If mEditingSubSubIdx >= 0 Then
-        Call btnEditSubItem_Click    ' assuming its Click handler gets a
-                                      ' mDrilledSubIdx-aware branch too - see below
-        ConfirmPendingChanges = (mEditingSubSubIdx = -1)
-        Exit Function
+        Call btnEditSubItem_Click
+        If mEditingSubSubIdx = -1 Then
+            ' confirmed successfully, nothing further needed here
+        End If
+        Exit Sub
     End If
 
     If mEditingSubIdx >= 0 Then
