@@ -129,8 +129,9 @@ Private mSecHasSubSubItems() As Boolean   ' TYPE_LIST only, and only meaningful 
 Private mDrilledSubText As String   ' the parent sub-item's own display text, captured at drill-in time, used only for prompt messages while drilled in
                                               
 Private mSubSubEditSnapshot As Collection
-Private mUndoHasSubSubItems As Boolean
 
+Private mUndoHasSubSubItems As Boolean
+Private mUndoHasSubItems As Boolean
 
 '====================================================
 ' CENTRAL ERROR HANDLER
@@ -224,8 +225,8 @@ Private Sub DrillIntoSub(ByVal subIdx As Long)
     mDrilledSubIdx = subIdx
     mDrilledSubText = lstSubItems.List(subIdx)
 
-    lblSubItems.Caption = "Sub-details of: " & TruncateForDisplay(mDrilledSubText)
-    btnDrillIntoSub.Caption = "? Back to Sub-items"
+    lblSubItems.Caption = "Bullets under: " & TruncateForDisplay(mDrilledSubText)
+    btnDrillIntoSub.Caption = "• Bullets"
 
     lstItems.Enabled = False
     btnAddItem.Enabled = False
@@ -325,8 +326,8 @@ Private Sub chkSubSubItems_Click()
 
         If hasAnySubSubs Then
             Dim resp As VbMsgBoxResult
-            resp = MsgBox("Turning off sub-details will permanently remove all sub-detail data for this section." & vbCrLf & vbCrLf & _
-                          "Continue?", vbYesNo + vbExclamation, "Remove Sub-details")
+            resp = MsgBox("Turning off sub-details will permanently remove all bullet points data for this section." & vbCrLf & vbCrLf & _
+                          "Continue?", vbYesNo + vbExclamation, "Remove bullet points")
 
             If resp = vbNo Then
                 mLoading = True
@@ -897,6 +898,7 @@ Private Sub PushUndo()
     Set mUndoItems = CloneCollection(mSecItems(mCurrentSection))
     mUndoData = mSecData(mCurrentSection)
     mUndoCols = mSecCols(mCurrentSection)
+    mUndoHasSubItems = mSecHasSubItems(mCurrentSection)
     mUndoHasSubSubItems = mSecHasSubSubItems(mCurrentSection)
     mUndoAvailable = True
     RefreshUndoButton
@@ -944,6 +946,7 @@ Private Sub btnUndo_Click()
     Set mSecItems(mCurrentSection) = CloneCollection(mUndoItems)
     mSecData(mCurrentSection) = mUndoData
     mSecCols(mCurrentSection) = mUndoCols
+    mSecHasSubItems(mCurrentSection) = mUndoHasSubItems
     mSecHasSubSubItems(mCurrentSection) = mUndoHasSubSubItems
     mUndoAvailable = False
     RefreshUndoButton
@@ -1248,7 +1251,7 @@ Private Sub UpdateSubSubItemButtonsBasedOnFocus()
         End If
 
         Dim subsubs() As String
-        subsubs = Split(subParts(1), LIST_SEP)
+        subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
         btnAddSubItem.Enabled = (mEditingSubSubIdx > 0)
         btnEditSubItem.Enabled = True
         btnRemoveSubItem.Enabled = (mEditingSubSubIdx < UBound(subsubs))
@@ -2241,13 +2244,12 @@ Private Sub chkSubItems_Click()
     
     If mSecTypes(mCurrentSection) <> TYPE_LIST Then Exit Sub
 
+    Dim savedItemIdx As Long
+    savedItemIdx = lstItems.ListIndex
+
     If chkSubItems.Value Then
-        ' Switching ON: nothing needs to change about existing data -
-        ' plain items just gain the *option* of having subs appended
         mSecHasSubItems(mCurrentSection) = True
     Else
-        ' Switching OFF is destructive - warn if any item actually
-        ' has sub-item data that would be discarded
         Dim hasAnySubs As Boolean
         hasAnySubs = False
 
@@ -2271,6 +2273,8 @@ Private Sub chkSubItems_Click()
                 mLoading = False
                 Exit Sub
             End If
+
+            PushUndo   ' NEW
         End If
 
         ' Strip everything after the pipe from each item
@@ -2287,6 +2291,16 @@ Private Sub chkSubItems_Click()
     End If
 
     ShowListSection mCurrentSection
+
+    If savedItemIdx >= 0 And savedItemIdx <= lstItems.ListCount - 1 Then
+        mLoading = True
+        lstItems.ListIndex = savedItemIdx
+        mLoading = False
+        RefreshSubItems
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
+    End If
+
     Exit Sub
 
 ErrHandler:
@@ -2419,7 +2433,7 @@ Private Sub RefreshSubSubItems()
             If Trim(subParts(1)) <> "" Then
 
                 Dim subsubs() As String
-                subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
+                subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)
                 Dim i As Long
                 For i = 0 To UBound(subsubs)
 
@@ -2637,6 +2651,54 @@ Private Sub lstSubItems_Click()
     If mLoading Then Exit Sub
     
     If lstSubItems.ListIndex < 0 Then Exit Sub
+
+    ' If in SubSubItem Edit mode, switching sub-sub-items is allowed
+    If mEditingSubSubIdx >= 0 Then
+
+        Dim newSubSubIdx As Long
+        newSubSubIdx = lstSubItems.ListIndex
+
+        Dim parentIdxSS As Long
+        parentIdxSS = lstItems.ListIndex + 1
+
+        ' Always save current text when switching (no prompt)
+        If Trim(txtSubItem.Text) <> "" Then
+            SaveEditedSubSubItemTextInPlace parentIdxSS, mDrilledSubIdx
+            mLoading = True
+            RefreshSubSubItems
+            mLoading = False
+        End If
+
+        ' Switch to newly selected sub-sub-item
+        mEditingSubSubIdx = newSubSubIdx
+
+        ' Guard against out of bounds
+        Dim partsSS() As String
+        partsSS = Split(mSecItems(mCurrentSection)(parentIdxSS), TABLE_SEP)
+        If UBound(partsSS) >= 1 Then
+            Dim subsSS() As String
+            subsSS = Split(partsSS(1), LIST_SEP)
+            If mDrilledSubIdx <= UBound(subsSS) Then
+                Dim subPartsSS() As String
+                If InStr(subsSS(mDrilledSubIdx), SUBSUB_SEP) > 0 Then
+                    subPartsSS = Split(subsSS(mDrilledSubIdx), SUBSUB_SEP)
+                    If UBound(subPartsSS) >= 1 Then
+                        Dim subsubsSS() As String
+                        subsubsSS = Split(subPartsSS(1), SUBSUB_ITEM_SEP)
+                        If mEditingSubSubIdx > UBound(subsubsSS) Then mEditingSubSubIdx = UBound(subsubsSS)
+                        txtSubItem.Text = subsubsSS(mEditingSubSubIdx)
+                    End If
+                End If
+            End If
+        End If
+
+        mLoading = True
+        lstSubItems.ListIndex = mEditingSubSubIdx
+        mLoading = False
+
+        UpdateSubSubItemButtonsBasedOnFocus
+        Exit Sub
+    End If
 
     ' If in SubItem Edit mode, switching sub-items is allowed
     If mEditingSubIdx >= 0 Then
@@ -3142,7 +3204,7 @@ Private Sub ReorderSubSubItem(ByRef subSubIndex As Long, _
     subParts = Split(subs(subIdx), SUBSUB_SEP)
 
     Dim subsubs() As String
-    subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
+    subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)
 
     If direction = -1 And subSubIndex <= 0 Then Exit Sub
     If direction = 1 And subSubIndex >= UBound(subsubs) Then Exit Sub
@@ -3154,14 +3216,14 @@ Private Sub ReorderSubSubItem(ByRef subSubIndex As Long, _
     parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
     subs = Split(parts(1), LIST_SEP)
     subParts = Split(subs(subIdx), SUBSUB_SEP)
-    subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
+    subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)
 
     Dim tmp As String
     tmp = subsubs(subSubIndex)
     subsubs(subSubIndex) = subsubs(subSubIndex + direction)
     subsubs(subSubIndex + direction) = tmp
 
-    subs(subIdx) = subParts(0) & SUBSUB_SEP & Join(subsubs, SUBSUB_ITEM_SEP)   ' CHANGED
+    subs(subIdx) = subParts(0) & SUBSUB_SEP & Join(subsubs, SUBSUB_ITEM_SEP)
 
     Dim newItemStr As String
     newItemStr = parts(0) & TABLE_SEP & Join(subs, LIST_SEP)
@@ -3377,12 +3439,29 @@ Private Sub btnRemoveSubItem_Click()
     Else
         Dim subIdx As Long
         subIdx = lstSubItems.ListIndex
-
         If subIdx < 0 Then
             MsgBox "Select a sub-item to remove.", vbExclamation
             Exit Sub
         End If
 
+        ' Warn if this sub-item has its own sub-sub-items that would be lost
+        Dim parentIdxCheck As Long
+        parentIdxCheck = itemIdx
+        Dim partsCheck() As String
+        partsCheck = Split(mSecItems(mCurrentSection)(parentIdxCheck), TABLE_SEP)
+        If UBound(partsCheck) >= 1 Then
+            Dim subsCheck() As String
+            subsCheck = Split(partsCheck(1), LIST_SEP)
+            If subIdx <= UBound(subsCheck) Then
+                If InStr(subsCheck(subIdx), SUBSUB_SEP) > 0 Then
+                    Dim removeResp As VbMsgBoxResult
+                    removeResp = MsgBox("This sub-item has bullet points, which will also be permanently removed." & vbCrLf & vbCrLf & _
+                                        "Continue?", vbYesNo + vbExclamation, "Remove Sub-item and bullet points?")
+                    If removeResp = vbNo Then Exit Sub
+                End If
+            End If
+        End If
+        
         PushUndo
 
         Dim parts2() As String
@@ -3799,7 +3878,7 @@ Private Sub AddSubSubItem()
     mLoading = True
     lstSubItems.ListIndex = lstSubItems.ListCount - 1
     mLoading = False
-    UpdateSubSubItemControls
+    UpdateSubSubItemButtonsBasedOnFocus
 
     Exit Sub
 
@@ -3845,7 +3924,7 @@ Private Sub RemoveSubSubItem()
     Dim newSubSubs As String
     If UBound(subParts) >= 1 Then
         Dim subsubs() As String
-        subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
+        subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)
 
         Dim j As Long
         For j = 0 To UBound(subsubs)
@@ -3853,7 +3932,7 @@ Private Sub RemoveSubSubItem()
                 If newSubSubs = "" Then
                     newSubSubs = subsubs(j)
                 Else
-                    newSubSubs = newSubSubs & SUBSUB_ITEM_SEP & subsubs(j)   ' CHANGED
+                    newSubSubs = newSubSubs & SUBSUB_ITEM_SEP & subsubs(j)
                 End If
             End If
         Next j
@@ -5628,7 +5707,7 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
                     If currentSubSubs = "" Then
                         currentSubSubs = bullet2Val
                     Else
-                        currentSubSubs = currentSubSubs & LIST_SEP & bullet2Val
+                        currentSubSubs = currentSubSubs & SUBSUB_ITEM_SEP & bullet2Val
                     End If
                 End If
             End If
