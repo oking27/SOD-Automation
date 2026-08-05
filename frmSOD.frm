@@ -58,7 +58,7 @@ Private Const TYPE_DICTIONARY As String = "DICTIONARY" ' fixed 2-column table
 Private TABLE_SEP As String  ' = Chr(31), replaces the old literal pipe character - separates fields/columns within a row
 Private LIST_SEP As String   ' = Chr(30), replaces the old literal tilde character - separates sub-items / column names within a field
 Private SUBSUB_SEP As String   ' = Chr(29) - separates a sub-item's own text from its sub-sub-items blob
-Private SUBSUB_ITEM_SEP As String   ' NEW = Chr(28) - joins multiple sub-sub-items within that blob
+Private SUBSUB_ITEM_SEP As String   ' = Chr(28) - joins multiple sub-sub-items within that blob
 
 Private Const LIST_DISPLAY_MAX As Long = 88
 
@@ -129,6 +129,7 @@ Private mSecHasSubSubItems() As Boolean   ' TYPE_LIST only, and only meaningful 
 Private mDrilledSubText As String   ' the parent sub-item's own display text, captured at drill-in time, used only for prompt messages while drilled in
                                               
 Private mSubSubEditSnapshot As Collection
+Private mUndoHasSubSubItems As Boolean
 
 
 '====================================================
@@ -293,15 +294,15 @@ Private Sub chkSubSubItems_Click()
     If mLoading Then Exit Sub
 
     If mSecTypes(mCurrentSection) <> TYPE_LIST Then Exit Sub
-    If Not mSecHasSubItems(mCurrentSection) Then Exit Sub   ' shouldn't be reachable if enabled state is correct, but guard anyway
+    If Not mSecHasSubItems(mCurrentSection) Then Exit Sub
+
+    ' Capture current Item selection before ShowListSection resets it
+    Dim savedItemIdx As Long
+    savedItemIdx = lstItems.ListIndex
 
     If chkSubSubItems.Value Then
-        ' Switching ON: nothing needs to change about existing data -
-        ' sub-items just gain the *option* of having their own children
         mSecHasSubSubItems(mCurrentSection) = True
     Else
-        ' Switching OFF is destructive - warn if any sub-item actually
-        ' has sub-sub-item data that would be discarded
         Dim hasAnySubSubs As Boolean
         hasAnySubSubs = False
 
@@ -333,9 +334,10 @@ Private Sub chkSubSubItems_Click()
                 mLoading = False
                 Exit Sub
             End If
+            
+            PushUndo
         End If
 
-        ' Strip everything after SUBSUB_SEP from every sub-item, in every item
         Dim newCol As New Collection
         Dim j As Long
         For j = 1 To mSecItems(mCurrentSection).count
@@ -360,11 +362,21 @@ Private Sub chkSubSubItems_Click()
         Set mSecItems(mCurrentSection) = newCol
         mSecHasSubSubItems(mCurrentSection) = False
 
-        ' If we were drilled in when this got switched off, back out
         If mDrilledSubIdx >= 0 Then DrillOutOfSub
     End If
 
     ShowListSection mCurrentSection
+
+    ' Restore the Item selection ShowListSection just reset to 0
+    If savedItemIdx >= 0 And savedItemIdx <= lstItems.ListCount - 1 Then
+        mLoading = True
+        lstItems.ListIndex = savedItemIdx
+        mLoading = False
+        RefreshSubItems
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
+    End If
+
     Exit Sub
 
 ErrHandler:
@@ -885,6 +897,7 @@ Private Sub PushUndo()
     Set mUndoItems = CloneCollection(mSecItems(mCurrentSection))
     mUndoData = mSecData(mCurrentSection)
     mUndoCols = mSecCols(mCurrentSection)
+    mUndoHasSubSubItems = mSecHasSubSubItems(mCurrentSection)
     mUndoAvailable = True
     RefreshUndoButton
     Exit Sub
@@ -931,6 +944,7 @@ Private Sub btnUndo_Click()
     Set mSecItems(mCurrentSection) = CloneCollection(mUndoItems)
     mSecData(mCurrentSection) = mUndoData
     mSecCols(mCurrentSection) = mUndoCols
+    mSecHasSubSubItems(mCurrentSection) = mUndoHasSubSubItems
     mUndoAvailable = False
     RefreshUndoButton
     ShowSection mCurrentSection
@@ -1146,10 +1160,10 @@ End Sub
 Private Sub UpdateSubItemButtonsBasedOnFocus()
     On Error GoTo ErrHandler
 
-    ' NEW: drilled-in mode takes priority and short-circuits into
+    ' Drilled-in mode takes priority and short-circuits into
     ' the sub-sub-item logic, which mirrors the block below almost exactly
     If mDrilledSubIdx >= 0 Then
-        UpdateSubSubItemButtonsBasedOnFocus   ' new sibling function, same pattern
+        UpdateSubSubItemButtonsBasedOnFocus   ' sibling function, same pattern
         Exit Sub
     End If
 
@@ -1869,7 +1883,6 @@ Private Sub txtSectionName_Change()
             ' Built-in name or reserved - can't use
             txtSectionName.BackColor = &HFF0000  ' Red: can't use
         Else
-            ' New custom section - all good
             txtSectionName.BackColor = &H80000005   ' Normal
         End If
     End If
@@ -2171,7 +2184,7 @@ Private Sub ShowListSection(ByVal idx As Long)
     btnEditSubItem.Visible = showSubs
     txtSubItem.Visible = showSubs
 
-    ' NEW: chkSubSubItems visibility mirrors showSubs (no point showing
+    ' chkSubSubItems visibility mirrors showSubs (no point showing
     ' "does a sub-item have children" when there are no sub-items at all).
     ' Enabled state additionally requires chkSubItems to actually be checked.
     chkSubSubItems.Visible = showSubs
