@@ -126,6 +126,8 @@ Private mSubSubEditSnapshotSec As Long
 Private mSubSubEditSnapshotSubIdx As Long   ' which sub-item (lstSubItems index) we were drilled into when the edit snapshot was taken
 
 Private mSecHasSubSubItems() As Boolean   ' TYPE_LIST only, and only meaningful when mSecHasSubItems(i) = True
+
+Private mDrilledSubText As String   ' the parent sub-item's own display text, captured at drill-in time, used only for prompt messages while drilled in
                                               
 
 
@@ -217,16 +219,17 @@ Private Sub DrillIntoSub(ByVal subIdx As Long)
     On Error GoTo ErrHandler
 
     mDrilledSubIdx = subIdx
+    mDrilledSubText = lstSubItems.List(subIdx)   ' capture BEFORE repurposing the list
 
-    lblSubItems.Caption = "Bullets under: " & TruncateForDisplay(lstSubItems.List(subIdx))
-    btnDrillIntoSub.Caption = "Back"
+    lblSubItems.Caption = "Bullets under: " & TruncateForDisplay(mDrilledSubText)
+    btnDrillIntoSub.Caption = "• Bullets"
 
-    ' Lock out the Item list/buttons while drilled in - same principle as
-    ' "editing a sub-item blocks item buttons" elsewhere in this form
     lstItems.Enabled = False
     btnAddItem.Enabled = False
     btnEditItem.Enabled = False
     btnRemoveItem.Enabled = False
+    txtItem.Enabled = False
+    txtItem.BackColor = &H8000000F
 
     txtSubItem.Text = ""
     RefreshSubSubItems
@@ -242,12 +245,31 @@ End Sub
 Private Sub DrillOutOfSub()
     On Error GoTo ErrHandler
 
-    mDrilledSubIdx = -1
+    If Len(Trim(txtSubItem.Text)) > 0 And mEditingSubSubIdx < 0 Then
+        Dim resp As VbMsgBoxResult
+        resp = MsgBox("Do you want to add """ & Trim(txtSubItem.Text) & """ to """ & mDrilledSubText & """?" & vbCrLf & vbCrLf & _
+              "Otherwise it will be discarded.", _
+              vbYesNoCancel + vbQuestion, "Unsaved Text")
 
+        If resp = vbCancel Then
+            Exit Sub
+        ElseIf resp = vbYes Then
+            AddSubSubItem
+        End If
+    End If
+
+    If mEditingSubSubIdx >= 0 Then
+        CancelSubSubItemEditMode
+    End If
+
+    mDrilledSubIdx = -1
+    mDrilledSubText = ""
     lblSubItems.Caption = "Sub-items:"
-    btnDrillIntoSub.Caption = "Sub-bullets"
+    btnDrillIntoSub.Caption = "• Bullets"
 
     lstItems.Enabled = True
+    txtItem.Enabled = True
+    txtItem.BackColor = &H80000005
     UpdateItemButtonsBasedOnFocus
 
     txtSubItem.Text = ""
@@ -1152,6 +1174,7 @@ Private Sub UpdateSubItemButtonsBasedOnFocus()
             btnAddSubItem.Enabled = False
             btnEditSubItem.Enabled = False
             btnRemoveSubItem.Enabled = False
+            btnDrillIntoSub.Enabled = False
             Exit Sub
         End If
 
@@ -2153,7 +2176,7 @@ Private Sub ShowListSection(ByVal idx As Long)
     mLoading = False
     chkSubSubItems.Enabled = showSubs
     If showSubs Then
-        chkSubSubItems.ControlTipText = "Check if sub-items should have their own sub-details"
+        chkSubSubItems.ControlTipText = "Check if sub-items should have their own sub-bullets"
     End If
 
     If showSubs Then
@@ -2317,7 +2340,13 @@ Private Sub RefreshSubItems()
                     Dim txt As String
                     txt = Trim(subs(i))
                     If txt <> "" Then
-                        lstSubItems.AddItem TruncateForDisplay(txt)
+                        Dim displayTxt As String
+                        If InStr(txt, SUBSUB_SEP) > 0 Then
+                            displayTxt = "•  " & Split(txt, SUBSUB_SEP)(0)
+                        Else
+                            displayTxt = txt
+                        End If
+                        lstSubItems.AddItem TruncateForDisplay(displayTxt)
                     End If
                 Next i
             End If
@@ -3722,7 +3751,7 @@ Private Sub AddSubSubItem()
     Next lineIdx
 
     If Not addedAny Then
-        MsgBox "Please type or paste at least one sub-detail before adding.", vbExclamation
+        MsgBox "Please type or paste at least one bullet point before adding.", vbExclamation
         Exit Sub
     End If
 
@@ -3770,7 +3799,7 @@ Private Sub RemoveSubSubItem()
     subSubIdx = lstSubItems.ListIndex
 
     If subSubIdx < 0 Then
-        MsgBox "Select a sub-detail to remove.", vbExclamation
+        MsgBox "Select a bullet point to remove.", vbExclamation
         Exit Sub
     End If
 
@@ -3847,7 +3876,7 @@ Private Sub EditSubSubItem()
         newSubSub = Trim(txtSubItem.Text)
 
         If newSubSub = "" Then
-            MsgBox "Please type a sub-detail before confirming.", vbExclamation
+            MsgBox "Please type a bullet point before confirming.", vbExclamation
             Exit Sub
         End If
 
@@ -3866,7 +3895,7 @@ Private Sub EditSubSubItem()
         subSubIdx = lstSubItems.ListIndex
 
         If subSubIdx < 0 Then
-            MsgBox "Select a sub-detail to edit.", vbExclamation
+            MsgBox "Select a bullet point to edit.", vbExclamation
             Exit Sub
         End If
 
@@ -5488,7 +5517,6 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
                                ByVal secIdx As Long)
     On Error GoTo ErrHandler
 
-    ' Find how many contiguous BulletN columns follow the main column.
     Dim lastBulletCol As Long
     lastBulletCol = parentCol
 
@@ -5506,54 +5534,81 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
     Set mSecItems(secIdx) = New Collection
 
     Dim r As Long
-    Dim mainVal As String
-    Dim currentMain As String     ' the main-column text of the item we're currently building
-    Dim currentSubs As String     ' its sub-items so far, joined with LIST_SEP
-    Dim haveEntry As Boolean      ' True once we've started building an item
+    Dim currentMain As String        ' Item text
+    Dim currentSub As String         ' most recent Bullet1 (level-1) text
+    Dim currentSubSubs As String     ' LIST_SEP-joined children of currentSub
+    Dim currentSubs As String        ' LIST_SEP-joined level-1 entries, each possibly
+                                      ' carrying its own SUBSUB_SEP-attached children
+    Dim haveEntry As Boolean
+    Dim haveSub As Boolean           ' True once currentSub has been started
 
     haveEntry = False
+    haveSub = False
     currentMain = ""
+    currentSub = ""
+    currentSubSubs = ""
     currentSubs = ""
 
     For r = 1 To tbl.ListRows.count
+        Dim mainVal As String
         mainVal = Trim(tbl.DataBodyRange(r, parentCol).Value)
 
+        Dim bullet1Val As String, bullet2Val As String
+        bullet1Val = ""
+        bullet2Val = ""
+        If lastBulletCol >= parentCol + 1 Then
+            bullet1Val = Trim(tbl.DataBodyRange(r, parentCol + 1).Value)
+        End If
+        If lastBulletCol >= parentCol + 2 Then
+            bullet2Val = Trim(tbl.DataBodyRange(r, parentCol + 2).Value)
+        End If
+
         If mainVal <> "" Then
-            ' This row starts a brand-new item. Before we start
-            ' building it, flush whatever item we were previously
-            ' accumulating (if any) so its data doesn't get lost.
+            ' New Item starts. Flush whatever was being built - first
+            ' close out any pending level-1 bullet, then the item itself.
             If haveEntry Then
+                FlushPendingSub currentSubs, currentSub, currentSubSubs, haveSub
                 FlushNestedEntry mSecItems(secIdx), currentMain, currentSubs
             End If
 
             currentMain = mainVal
             currentSubs = ""
+            currentSub = ""
+            currentSubSubs = ""
+            haveSub = False
             haveEntry = True
         End If
 
-        ' Whether this row started a new item or is just a
-        ' continuation row (blank main column), grab whatever
-        ' BulletN values are on THIS row and add them as more
-        ' sub-items of whichever item we're currently building.
         If haveEntry Then
-            For c = parentCol + 1 To lastBulletCol
-                Dim subVal As String
-                subVal = Trim(tbl.DataBodyRange(r, c).Value)
-                If subVal <> "" Then
-                    If currentSubs = "" Then
-                        currentSubs = subVal
+            If bullet1Val <> "" Then
+                ' New level-1 bullet starts. Flush whatever level-1 bullet
+                ' (and its accumulated children) was previously being built.
+                FlushPendingSub currentSubs, currentSub, currentSubSubs, haveSub
+
+                currentSub = bullet1Val
+                currentSubSubs = ""
+                haveSub = True
+
+                ' Same row can also carry its own level-2 child inline
+                If bullet2Val <> "" Then
+                    currentSubSubs = bullet2Val
+                End If
+            ElseIf bullet2Val <> "" Then
+                ' Continuation row: level-2 value with no new level-1 on
+                ' this row - attaches as another child of currentSub
+                If haveSub Then
+                    If currentSubSubs = "" Then
+                        currentSubSubs = bullet2Val
                     Else
-                        currentSubs = currentSubs & LIST_SEP & subVal
+                        currentSubSubs = currentSubSubs & LIST_SEP & bullet2Val
                     End If
                 End If
-            Next c
+            End If
         End If
     Next r
 
-    ' The loop ends without ever flushing the LAST item we were
-    ' building, since flushing only happens when a NEW item starts.
-    ' So we flush it manually here, once, after the loop.
     If haveEntry Then
+        FlushPendingSub currentSubs, currentSub, currentSubSubs, haveSub
         FlushNestedEntry mSecItems(secIdx), currentMain, currentSubs
     End If
 
@@ -5561,6 +5616,32 @@ Private Sub LoadNestedColumns(ByVal tbl As ListObject, _
 
 ErrHandler:
     HandleFormError "LoadNestedColumns"
+
+End Sub
+
+' Closes out one level-1 bullet (currentSub + its currentSubSubs children,
+' if any) and appends it onto the running currentSubs LIST_SEP chain.
+' No-op if no level-1 bullet is currently pending.
+Private Sub FlushPendingSub(ByRef currentSubs As String, _
+                            ByRef currentSub As String, _
+                            ByRef currentSubSubs As String, _
+                            ByRef haveSub As Boolean)
+
+    If Not haveSub Then Exit Sub
+
+    Dim entry As String
+    entry = currentSub
+    If currentSubSubs <> "" Then entry = entry & SUBSUB_SEP & currentSubSubs
+
+    If currentSubs = "" Then
+        currentSubs = entry
+    Else
+        currentSubs = currentSubs & LIST_SEP & entry
+    End If
+
+    currentSub = ""
+    currentSubSubs = ""
+    haveSub = False
 
 End Sub
 
