@@ -57,6 +57,8 @@ Private Const TYPE_DICTIONARY As String = "DICTIONARY" ' fixed 2-column table
 ' top of UserForm_Initialize before anything else can use them.
 Private TABLE_SEP As String  ' = Chr(31), replaces the old literal pipe character - separates fields/columns within a row
 Private LIST_SEP As String   ' = Chr(30), replaces the old literal tilde character - separates sub-items / column names within a field
+Private SUBSUB_SEP As String   ' = Chr(29) - separates a sub-item's own text from its sub-sub-items blob
+Private SUBSUB_ITEM_SEP As String   ' NEW = Chr(28) - joins multiple sub-sub-items within that blob
 
 Private Const LIST_DISPLAY_MAX As Long = 88
 
@@ -116,10 +118,7 @@ Private mShowingUnconfirmedPrompt As Boolean
 ' -1 = not drilled into any sub-item, otherwise 0-based index of
 ' the sub-item (within its parent Item) currently drilled into.
 ' Mirrors mEditingSubIdx's convention but one level deeper.
-
-Private SUBSUB_SEP As String   '- separates sub-sub-items within
-Private mDrilledSubIdx As Long       ' -1 = not drilled in, else 0-based index of the
-                                      ' sub-item (within current Item) whose children we're viewing
+Private mDrilledSubIdx As Long       ' -1 = not drilled in, else 0-based index of the sub-item (within current Item) whose children we're viewing
 Private mEditingSubSubIdx As Long    ' -1 = not editing, else 0-based index of the sub-sub-item being edited within the drilled-into sub-item
                                       
 Private mSubSubEditSnapshotSec As Long
@@ -129,6 +128,7 @@ Private mSecHasSubSubItems() As Boolean   ' TYPE_LIST only, and only meaningful 
 
 Private mDrilledSubText As String   ' the parent sub-item's own display text, captured at drill-in time, used only for prompt messages while drilled in
                                               
+Private mSubSubEditSnapshot As Collection
 
 
 '====================================================
@@ -218,11 +218,13 @@ End Sub
 Private Sub DrillIntoSub(ByVal subIdx As Long)
     On Error GoTo ErrHandler
 
-    mDrilledSubIdx = subIdx
-    mDrilledSubText = lstSubItems.List(subIdx)   ' capture BEFORE repurposing the list
+    Debug.Print "DrillIntoSub called. subIdx=" & subIdx & " lstItems.ListIndex before=" & lstItems.ListIndex
 
-    lblSubItems.Caption = "Bullets under: " & TruncateForDisplay(mDrilledSubText)
-    btnDrillIntoSub.Caption = "• Bullets"
+    mDrilledSubIdx = subIdx
+    mDrilledSubText = lstSubItems.List(subIdx)
+
+    lblSubItems.Caption = "Sub-details of: " & TruncateForDisplay(mDrilledSubText)
+    btnDrillIntoSub.Caption = "? Back to Sub-items"
 
     lstItems.Enabled = False
     btnAddItem.Enabled = False
@@ -234,6 +236,8 @@ Private Sub DrillIntoSub(ByVal subIdx As Long)
     txtSubItem.Text = ""
     RefreshSubSubItems
     UpdateSubSubItemButtonsBasedOnFocus
+
+    Debug.Print "DrillIntoSub finished. lstItems.ListIndex after=" & lstItems.ListIndex
 
     Exit Sub
 
@@ -512,11 +516,11 @@ Private Sub UserForm_Initialize()
     TABLE_SEP = Chr(31)
     LIST_SEP = Chr(30)
     SUBSUB_SEP = Chr(29)
+    SUBSUB_ITEM_SEP = Chr(28)
 
     mDrilledSubIdx = -1
     mEditingSubSubIdx = -1
     
-
     mLoading = True
     mEditingItemIdx = 0
     mEditingSubIdx = -1
@@ -2402,7 +2406,7 @@ Private Sub RefreshSubSubItems()
             If Trim(subParts(1)) <> "" Then
 
                 Dim subsubs() As String
-                subsubs = Split(subParts(1), LIST_SEP)
+                subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
                 Dim i As Long
                 For i = 0 To UBound(subsubs)
 
@@ -2550,8 +2554,11 @@ End Sub
 
 Private Sub lstItems_Click()
     On Error GoTo ErrHandler
+    Debug.Print "lstItems_Click fired. New ListIndex=" & lstItems.ListIndex
     
     If mLoading Then Exit Sub
+    
+    If mDrilledSubIdx >= 0 Then Exit Sub    ' Items list is locked while drilled in
     
     If lstItems.ListIndex < 0 Then Exit Sub
     
@@ -3122,7 +3129,7 @@ Private Sub ReorderSubSubItem(ByRef subSubIndex As Long, _
     subParts = Split(subs(subIdx), SUBSUB_SEP)
 
     Dim subsubs() As String
-    subsubs = Split(subParts(1), LIST_SEP)
+    subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
 
     If direction = -1 And subSubIndex <= 0 Then Exit Sub
     If direction = 1 And subSubIndex >= UBound(subsubs) Then Exit Sub
@@ -3134,14 +3141,14 @@ Private Sub ReorderSubSubItem(ByRef subSubIndex As Long, _
     parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
     subs = Split(parts(1), LIST_SEP)
     subParts = Split(subs(subIdx), SUBSUB_SEP)
-    subsubs = Split(subParts(1), LIST_SEP)
+    subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
 
     Dim tmp As String
     tmp = subsubs(subSubIndex)
     subsubs(subSubIndex) = subsubs(subSubIndex + direction)
     subsubs(subSubIndex + direction) = tmp
 
-    subs(subIdx) = subParts(0) & SUBSUB_SEP & Join(subsubs, LIST_SEP)
+    subs(subIdx) = subParts(0) & SUBSUB_SEP & Join(subsubs, SUBSUB_ITEM_SEP)   ' CHANGED
 
     Dim newItemStr As String
     newItemStr = parts(0) & TABLE_SEP & Join(subs, LIST_SEP)
@@ -3583,8 +3590,12 @@ Private Sub CancelSubSubItemEditMode()
     If Not mSubSubEditSnapshot Is Nothing Then
         If mSubSubEditSnapshotSec = mCurrentSection Then
             Set mSecItems(mCurrentSection) = CloneCollection(mSubSubEditSnapshot)
-            lstSubItems.ListIndex = mSubSubEditSnapshotSubIdx
             RefreshSubSubItems
+            mLoading = True
+            If mSubSubEditSnapshotSubIdx <= lstSubItems.ListCount - 1 Then
+                lstSubItems.ListIndex = mSubSubEditSnapshotSubIdx
+            End If
+            mLoading = False
         End If
     End If
 
@@ -3659,7 +3670,7 @@ Private Sub SaveEditedSubSubItemTextInPlace(ByVal itemIdx As Long, ByVal subIdx 
 
     Dim subsubs() As String
     If UBound(subParts) >= 1 Then
-        subsubs = Split(subParts(1), LIST_SEP)
+        subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
     Else
         ReDim subsubs(0)
     End If
@@ -3668,7 +3679,7 @@ Private Sub SaveEditedSubSubItemTextInPlace(ByVal itemIdx As Long, ByVal subIdx 
 
     ' Rebuild bottom-up: subsub array -> sub-item string -> subs array -> item string
     Dim newSubItemStr As String
-    newSubItemStr = subParts(0) & SUBSUB_SEP & Join(subsubs, LIST_SEP)
+    newSubItemStr = subParts(0) & SUBSUB_SEP & Join(subsubs, SUBSUB_ITEM_SEP)   ' CHANGED
 
     subs(subIdx) = newSubItemStr
 
@@ -3743,7 +3754,7 @@ Private Sub AddSubSubItem()
             If existingSubSubs = "" Then
                 existingSubSubs = cleanLine
             Else
-                existingSubSubs = existingSubSubs & LIST_SEP & cleanLine
+                existingSubSubs = existingSubSubs & SUBSUB_ITEM_SEP & cleanLine   ' CHANGED
             End If
             lstSubItems.AddItem TruncateForDisplay(cleanLine)
             addedAny = True
@@ -3772,7 +3783,9 @@ Private Sub AddSubSubItem()
 
     Set mSecItems(mCurrentSection) = newCol
     txtSubItem.Text = ""
+    mLoading = True
     lstSubItems.ListIndex = lstSubItems.ListCount - 1
+    mLoading = False
     UpdateSubSubItemControls
 
     Exit Sub
@@ -3819,7 +3832,7 @@ Private Sub RemoveSubSubItem()
     Dim newSubSubs As String
     If UBound(subParts) >= 1 Then
         Dim subsubs() As String
-        subsubs = Split(subParts(1), LIST_SEP)
+        subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
 
         Dim j As Long
         For j = 0 To UBound(subsubs)
@@ -3827,7 +3840,7 @@ Private Sub RemoveSubSubItem()
                 If newSubSubs = "" Then
                     newSubSubs = subsubs(j)
                 Else
-                    newSubSubs = newSubSubs & LIST_SEP & subsubs(j)
+                    newSubSubs = newSubSubs & SUBSUB_ITEM_SEP & subsubs(j)   ' CHANGED
                 End If
             End If
         Next j
@@ -3888,7 +3901,9 @@ Private Sub EditSubSubItem()
 
         ExitSubSubItemEditMode
         RefreshSubSubItems
+        mLoading = True
         lstSubItems.ListIndex = savedIdx
+        mLoading = False
 
     Else
         Dim subSubIdx As Long
@@ -3909,7 +3924,7 @@ Private Sub EditSubSubItem()
         subParts = Split(subs(mDrilledSubIdx), SUBSUB_SEP)
 
         Dim subsubs() As String
-        subsubs = Split(subParts(1), LIST_SEP)
+        subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
 
         If subSubIdx > UBound(subsubs) Then Exit Sub
 
@@ -3918,7 +3933,7 @@ Private Sub EditSubSubItem()
 
         Set mSubSubEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
         mSubSubEditSnapshotSec = mCurrentSection
-        mSubSubEditSnapshotSubIdx = mDrilledSubIdx
+        mSubSubEditSnapshotSubIdx = subSubIdx   ' FIXED - was mDrilledSubIdx
 
         mEditingSubSubIdx = subSubIdx
 
@@ -6407,6 +6422,11 @@ End Sub
 
 Private Sub CancelAnyActiveEditMode()
     On Error GoTo ErrHandler
+
+    If mEditingSubSubIdx >= 0 Then
+        CancelSubSubItemEditMode
+        Exit Sub
+    End If
 
     If mEditingSubIdx >= 0 Then
         CancelSubItemEditMode
