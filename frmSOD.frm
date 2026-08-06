@@ -414,7 +414,38 @@ Private Sub chkSubSubItems_Click()
         If mDrilledSubIdx >= 0 Then DrillOutOfSub
     End If
 
+    Dim savedItemIdx As Long
+    Dim savedSubIdx As Long
+    savedItemIdx = lstItems.ListIndex
+    savedSubIdx = lstSubItems.ListIndex
+
     ShowListSection mCurrentSection
+
+    If savedItemIdx >= 0 And savedItemIdx < lstItems.ListCount Then
+        mLoading = True
+        lstItems.ListIndex = savedItemIdx
+        mLoading = False
+
+        UpdateItemControls
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
+
+        If mSecHasSubItems(mCurrentSection) Then
+            lstSubItems.Clear
+            txtSubItem.Text = ""
+            UpdateSubItemsLabel
+            UpdateSubItemControls
+            RefreshSubItems
+
+            If savedSubIdx >= 0 And savedSubIdx < lstSubItems.ListCount Then
+                mLoading = True
+                lstSubItems.ListIndex = savedSubIdx
+                mLoading = False
+                UpdateSubItemButtonsBasedOnFocus
+            End If
+        End If
+    End If
+
     Exit Sub
 
 ErrHandler:
@@ -1214,25 +1245,16 @@ End Sub
 Private Sub UpdateSubItemButtonsBasedOnFocus()
     On Error GoTo ErrHandler
 
+    ' The sub-sub-items checkbox only makes sense to offer when there's
+    ' actually an Item in the list for a sub-item to belong to - without
+    ' that, "does a sub-item have children" is meaningless, even if a
+    ' sub-item is still visibly sitting in the listbox below (stale).
+    chkSubSubItems.Enabled = mSecHasSubItems(mCurrentSection) And (lstItems.ListCount > 0) And (lstSubItems.ListCount > 0)
+
     ' Drilled-in mode takes priority and short-circuits into
     ' the sub-sub-item logic, which mirrors the block below almost exactly
     If mDrilledSubIdx >= 0 Then
         UpdateSubSubItemButtonsBasedOnFocus   ' sibling function, same pattern
-        Exit Sub
-    End If
-
-    ' ... existing body, completely unchanged below this point ...
-    If mEditingItemIdx > 0 Then
-        btnAddSubItem.Enabled = False
-        btnEditSubItem.Enabled = False
-        btnRemoveSubItem.Enabled = False
-        Exit Sub
-    End If
-
-    If lstItems.ListIndex < 0 Then
-        btnAddSubItem.Enabled = False
-        btnEditSubItem.Enabled = False
-        btnRemoveSubItem.Enabled = False
         Exit Sub
     End If
 
@@ -1260,6 +1282,7 @@ Private Sub UpdateSubItemButtonsBasedOnFocus()
 
     ' NORMAL MODE: Check if txtSubItem has content
     btnAddSubItem.Enabled = (Len(Trim(txtSubItem.Text)) > 0)
+    
     Dim hasSelection As Boolean
     hasSelection = (lstSubItems.ListIndex >= 0)
     btnEditSubItem.Enabled = hasSelection
@@ -3040,6 +3063,9 @@ Private Sub btnAddItem_Click()
             UpdateSubItemsLabel
             RefreshSubItems
         End If
+        
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
     End If
     
     Exit Sub
@@ -3119,6 +3145,8 @@ Private Sub btnRemoveItem_Click()
         End If
         
         UpdateItemControls
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
     End If
     
     Exit Sub
@@ -3150,8 +3178,8 @@ Private Sub btnEditItem_Click()
         
         Dim savedIdx As Long
         savedIdx = mEditingItemIdx
-        
         ExitItemEditMode
+        UpdateItemControls
         RefreshItemsDisplay
         
         mLoading = True
@@ -3159,10 +3187,11 @@ Private Sub btnEditItem_Click()
         mLoading = False
         
         If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then RefreshSubItems
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
     Else
         Dim selIdx As Long
         selIdx = lstItems.ListIndex
-    
         If selIdx < 0 Then
             MsgBox "Select an item to edit.", vbExclamation
             Exit Sub
@@ -3235,8 +3264,8 @@ Private Sub CancelItemEditMode()
             RefreshItemsDisplay
             
             If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then
-                lstSubItems.Clear
                 UpdateSubItemsLabel
+                RefreshSubItems
             End If
         End If
     End If
@@ -3479,6 +3508,7 @@ Private Sub btnAddSubItem_Click()
         Dim mainPart As String
         mainPart = parts2(0)
         Dim existingSubs As String
+        
         If UBound(parts2) >= 1 Then
             existingSubs = parts2(1)
         Else
@@ -3523,6 +3553,7 @@ Private Sub btnAddSubItem_Click()
         txtSubItem.Text = ""
         lstSubItems.ListIndex = lstSubItems.ListCount - 1
         UpdateSubItemControls
+        UpdateSubItemButtonsBasedOnFocus
     End If
 
     Exit Sub
@@ -3580,10 +3611,8 @@ Private Sub btnRemoveSubItem_Click()
 
         Dim parts2() As String
         parts2 = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
-
         Dim newStr2 As String
         newStr2 = parts2(0)
-
         If UBound(parts2) > 0 Then
             Dim subs2() As String
             subs2 = Split(parts2(1), LIST_SEP)
@@ -3612,10 +3641,12 @@ Private Sub btnRemoveSubItem_Click()
                 newCol2.Add mSecItems(mCurrentSection)(k)
             End If
         Next k
+        
         Set mSecItems(mCurrentSection) = newCol2
 
         lstSubItems.RemoveItem subIdx
         UpdateSubItemControls
+        UpdateSubItemButtonsBasedOnFocus
     End If
 
     Exit Sub
@@ -3682,12 +3713,13 @@ Private Sub btnEditSubItem_Click()
 
         Dim savedSubIdx As Long
         savedSubIdx = mEditingSubIdx
-
         ExitSubItemEditMode
         UpdateItemControls   ' restore item controls now that sub-item edit is over
-
         RefreshSubItems
+        
         lstSubItems.ListIndex = savedSubIdx
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
     Else
         Dim parentIdx2 As Long
         parentIdx2 = lstItems.ListIndex
@@ -6642,6 +6674,3 @@ ErrHandler:
     HandleFormError "CancelAnyActiveEditMode"
 
 End Sub
-
-
-
