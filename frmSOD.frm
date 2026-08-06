@@ -203,6 +203,22 @@ End Sub
 Private Sub btnDrillIntoSub_Click()
     On Error GoTo ErrHandler
 
+    If Not mDeveloperMode And HasUnconfirmedContent() Then
+        Dim resp As VbMsgBoxResult
+        resp = MsgBox(BuildUnconfirmedPromptText(), vbYesNoCancel + vbQuestion, "Unsaved Text")
+
+        Select Case resp
+            Case vbCancel
+                Exit Sub
+
+            Case vbYes
+                If Not ConfirmPendingChanges() Then Exit Sub
+
+            Case vbNo
+                ' fall through - discard and proceed
+        End Select
+    End If
+
     If mDrilledSubIdx >= 0 Then
         DrillOutOfSub
     Else
@@ -295,15 +311,47 @@ Private Sub chkSubSubItems_Click()
     If mLoading Then Exit Sub
 
     If mSecTypes(mCurrentSection) <> TYPE_LIST Then Exit Sub
-    If Not mSecHasSubItems(mCurrentSection) Then Exit Sub
+    
+    If Not mSecHasSubItems(mCurrentSection) Then Exit Sub   ' shouldn't be reachable if enabled state is correct, but guard anyway
 
-    ' Capture current Item selection before ShowListSection resets it
-    Dim savedItemIdx As Long
-    savedItemIdx = lstItems.ListIndex
+    ' Guard: don't let this checkbox blow past an active edit
+    ' (item / sub-item / sub-sub-item / row) without confirming.
+    If Not mDeveloperMode And HasUnconfirmedContent() Then
+        Dim priorValue As Boolean
+        priorValue = Not chkSubSubItems.Value   ' .Value already reflects the click; this recovers the pre-click state
+
+        Dim guardResp As VbMsgBoxResult
+        guardResp = MsgBox(BuildUnconfirmedPromptText(), vbYesNoCancel + vbQuestion, "Unsaved Text")
+
+        Select Case guardResp
+            Case vbCancel
+                mLoading = True
+                chkSubSubItems.Value = priorValue
+                DoEvents
+                mLoading = False
+                Exit Sub
+
+            Case vbYes
+                If Not ConfirmPendingChanges() Then
+                    mLoading = True
+                    chkSubSubItems.Value = priorValue
+                    DoEvents
+                    mLoading = False
+                    Exit Sub
+                End If
+
+            Case vbNo
+                ' fall through - discard and proceed with the toggle
+        End Select
+    End If
 
     If chkSubSubItems.Value Then
+        ' Switching ON: nothing needs to change about existing data -
+        ' sub-items just gain the *option* of having their own children
         mSecHasSubSubItems(mCurrentSection) = True
     Else
+        ' Switching OFF is destructive - warn if any sub-item actually
+        ' has sub-sub-item data that would be discarded
         Dim hasAnySubSubs As Boolean
         hasAnySubSubs = False
 
@@ -326,8 +374,8 @@ Private Sub chkSubSubItems_Click()
 
         If hasAnySubSubs Then
             Dim resp As VbMsgBoxResult
-            resp = MsgBox("Turning off sub-details will permanently remove all bullet points data for this section." & vbCrLf & vbCrLf & _
-                          "Continue?", vbYesNo + vbExclamation, "Remove bullet points")
+            resp = MsgBox("Turning off sub-details will permanently remove all sub-detail data for this section." & vbCrLf & vbCrLf & _
+                          "Continue?", vbYesNo + vbExclamation, "Remove Sub-details")
 
             If resp = vbNo Then
                 mLoading = True
@@ -335,10 +383,9 @@ Private Sub chkSubSubItems_Click()
                 mLoading = False
                 Exit Sub
             End If
-            
-            PushUndo
         End If
 
+        ' Strip everything after SUBSUB_SEP from every sub-item, in every item
         Dim newCol As New Collection
         Dim j As Long
         For j = 1 To mSecItems(mCurrentSection).count
@@ -363,21 +410,11 @@ Private Sub chkSubSubItems_Click()
         Set mSecItems(mCurrentSection) = newCol
         mSecHasSubSubItems(mCurrentSection) = False
 
+        ' If we were drilled in when this got switched off, back out
         If mDrilledSubIdx >= 0 Then DrillOutOfSub
     End If
 
     ShowListSection mCurrentSection
-
-    ' Restore the Item selection ShowListSection just reset to 0
-    If savedItemIdx >= 0 And savedItemIdx <= lstItems.ListCount - 1 Then
-        mLoading = True
-        lstItems.ListIndex = savedItemIdx
-        mLoading = False
-        RefreshSubItems
-        UpdateItemButtonsBasedOnFocus
-        UpdateSubItemButtonsBasedOnFocus
-    End If
-
     Exit Sub
 
 ErrHandler:
@@ -704,6 +741,12 @@ Private Function BuildUnconfirmedPromptText() As String
         Exit Function
     End If
 
+    If mEditingSubSubIdx >= 0 Then
+        BuildUnconfirmedPromptText = "You're still editing a sub-bullet in """ & mSecNames(mCurrentSection) & """." & vbCrLf & vbCrLf & _
+            "Do you want to confirm your changes? Otherwise they will be discarded."
+        Exit Function
+    End If
+
     If mEditingRowIdx > 0 Then
         BuildUnconfirmedPromptText = "You're still editing a row in """ & mSecNames(mCurrentSection) & """." & vbCrLf & vbCrLf & _
             "Do you want to confirm your changes? Otherwise they will be discarded."
@@ -713,21 +756,29 @@ Private Function BuildUnconfirmedPromptText() As String
     Select Case mSecTypes(mCurrentSection)
 
         Case TYPE_LIST
-            If Len(Trim(txtItem.Text)) > 0 Then
-                BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtItem.Text) & """ to " & mSecNames(mCurrentSection) & "?" & vbCrLf & vbCrLf & _
-                    "Otherwise it will be discarded."
-                Exit Function
-
-            ElseIf mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
-                Dim parentDisplay As String
-                If lstItems.ListIndex >= 0 Then
-                    parentDisplay = lstItems.List(lstItems.ListIndex)
-                Else
-                    parentDisplay = "(no item selected)"
+            If mDrilledSubIdx >= 0 Then
+                If Len(Trim(txtSubItem.Text)) > 0 Then
+                    BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtSubItem.Text) & """ to """ & TruncateForDisplay(mDrilledSubText) & """?" & vbCrLf & vbCrLf & _
+                        "Otherwise it will be discarded."
+                    Exit Function
                 End If
-                BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtSubItem.Text) & """ to """ & parentDisplay & """?" & vbCrLf & vbCrLf & _
-                    "Otherwise it will be discarded."
-                Exit Function
+            Else
+                If Len(Trim(txtItem.Text)) > 0 Then
+                    BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtItem.Text) & """ to " & mSecNames(mCurrentSection) & "?" & vbCrLf & vbCrLf & _
+                        "Otherwise it will be discarded."
+                    Exit Function
+
+                ElseIf mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
+                    Dim parentDisplay As String
+                    If lstItems.ListIndex >= 0 Then
+                        parentDisplay = lstItems.List(lstItems.ListIndex)
+                    Else
+                        parentDisplay = "(no item selected)"
+                    End If
+                    BuildUnconfirmedPromptText = "Do you want to add """ & Trim(txtSubItem.Text) & """ to """ & parentDisplay & """?" & vbCrLf & vbCrLf & _
+                        "Otherwise it will be discarded."
+                    Exit Function
+                End If
             End If
 
         Case TYPE_TABLE, TYPE_RESOURCES, TYPE_DICTIONARY
@@ -1285,6 +1336,12 @@ Private Function ConfirmPendingChanges() As Boolean
         Exit Function
     End If
 
+    If mEditingSubSubIdx >= 0 Then
+        Call btnEditSubItem_Click    ' mDrilledSubIdx >= 0 routes this into EditSubSubItem's CONFIRM branch
+        ConfirmPendingChanges = (mEditingSubSubIdx = -1)
+        Exit Function
+    End If
+
     If mEditingRowIdx > 0 Then
         Call btnEditRow_Click        ' runs its CONFIRM branch
         ConfirmPendingChanges = (mEditingRowIdx = 0)
@@ -1292,15 +1349,22 @@ Private Function ConfirmPendingChanges() As Boolean
     End If
 
     Select Case mSecTypes(mCurrentSection)
-
         Case TYPE_LIST
-            If Len(Trim(txtItem.Text)) > 0 Or _
-               (mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0) Then
-                Call btnAddItem_Click
-                Dim itemAdded As Boolean
-                itemAdded = (Len(Trim(txtItem.Text)) = 0)
-                ConfirmPendingChanges = itemAdded
-                Exit Function
+            If mDrilledSubIdx >= 0 Then
+                If Len(Trim(txtSubItem.Text)) > 0 Then
+                    Call btnAddSubItem_Click     ' assumes this routes into AddSubSubItem via a top-of-function mDrilledSubIdx gate, same pattern as btnEditSubItem_Click
+                    ConfirmPendingChanges = (Len(Trim(txtSubItem.Text)) = 0)
+                    Exit Function
+                End If
+            Else
+                If Len(Trim(txtItem.Text)) > 0 Or _
+                   (mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0) Then
+                    Call btnAddItem_Click
+                    Dim itemAdded As Boolean
+                    itemAdded = (Len(Trim(txtItem.Text)) = 0)
+                    ConfirmPendingChanges = itemAdded
+                    Exit Function
+                End If
             End If
 
         Case TYPE_TABLE, TYPE_RESOURCES, TYPE_DICTIONARY
@@ -1309,7 +1373,6 @@ Private Function ConfirmPendingChanges() As Boolean
                 ConfirmPendingChanges = (Replace(ReadTableRowFields(), TABLE_SEP, "") = "")
                 Exit Function
             End If
-
     End Select
 
     ConfirmPendingChanges = True   ' nothing was actually pending
@@ -1460,21 +1523,36 @@ Private Function HasUnconfirmedContent() As Boolean
         Exit Function
     End If
 
+    If mEditingSubSubIdx >= 0 Then
+        HasUnconfirmedContent = True
+        Exit Function
+    End If
+
     If mEditingRowIdx > 0 Then
         HasUnconfirmedContent = True
         Exit Function
     End If
 
     Select Case mSecTypes(mCurrentSection)
-
         Case TYPE_LIST
-            If Len(Trim(txtItem.Text)) > 0 Then
-                HasUnconfirmedContent = True
-                Exit Function
-            End If
-            If mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
-                HasUnconfirmedContent = True
-                Exit Function
+            If mDrilledSubIdx >= 0 Then
+                ' Drilled into a sub-item: txtItem is disabled/inert and
+                ' must NOT be considered. txtSubItem now holds a pending
+                ' NEW sub-sub-item (the existing-edit case is already
+                ' caught above via mEditingSubSubIdx).
+                If Len(Trim(txtSubItem.Text)) > 0 Then
+                    HasUnconfirmedContent = True
+                    Exit Function
+                End If
+            Else
+                If Len(Trim(txtItem.Text)) > 0 Then
+                    HasUnconfirmedContent = True
+                    Exit Function
+                End If
+                If mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
+                    HasUnconfirmedContent = True
+                    Exit Function
+                End If
             End If
 
         Case TYPE_TABLE, TYPE_RESOURCES, TYPE_DICTIONARY
@@ -1482,7 +1560,6 @@ Private Function HasUnconfirmedContent() As Boolean
                 HasUnconfirmedContent = True
                 Exit Function
             End If
-
     End Select
 
     HasUnconfirmedContent = False
@@ -2244,12 +2321,44 @@ Private Sub chkSubItems_Click()
     
     If mSecTypes(mCurrentSection) <> TYPE_LIST Then Exit Sub
 
-    Dim savedItemIdx As Long
-    savedItemIdx = lstItems.ListIndex
+    ' Guard: don't let this checkbox blow past an active edit
+    ' (item / sub-item / sub-sub-item / row) without confirming.
+    If Not mDeveloperMode And HasUnconfirmedContent() Then
+        Dim priorValue As Boolean
+        priorValue = Not chkSubItems.Value
+
+        Dim guardResp As VbMsgBoxResult
+        guardResp = MsgBox(BuildUnconfirmedPromptText(), vbYesNoCancel + vbQuestion, "Unsaved Text")
+
+        Select Case guardResp
+            Case vbCancel
+                mLoading = True
+                chkSubItems.Value = priorValue
+                DoEvents
+                mLoading = False
+                Exit Sub
+
+            Case vbYes
+                If Not ConfirmPendingChanges() Then
+                    mLoading = True
+                    chkSubItems.Value = priorValue
+                    DoEvents
+                    mLoading = False
+                    Exit Sub
+                End If
+
+            Case vbNo
+                ' fall through - discard and proceed with the toggle
+        End Select
+    End If
 
     If chkSubItems.Value Then
+        ' Switching ON: nothing needs to change about existing data -
+        ' plain items just gain the *option* of having subs appended
         mSecHasSubItems(mCurrentSection) = True
     Else
+        ' Switching OFF is destructive - warn if any item actually
+        ' has sub-item data that would be discarded
         Dim hasAnySubs As Boolean
         hasAnySubs = False
 
@@ -2273,8 +2382,6 @@ Private Sub chkSubItems_Click()
                 mLoading = False
                 Exit Sub
             End If
-
-            PushUndo   ' NEW
         End If
 
         ' Strip everything after the pipe from each item
@@ -2291,16 +2398,6 @@ Private Sub chkSubItems_Click()
     End If
 
     ShowListSection mCurrentSection
-
-    If savedItemIdx >= 0 And savedItemIdx <= lstItems.ListCount - 1 Then
-        mLoading = True
-        lstItems.ListIndex = savedItemIdx
-        mLoading = False
-        RefreshSubItems
-        UpdateItemButtonsBasedOnFocus
-        UpdateSubItemButtonsBasedOnFocus
-    End If
-
     Exit Sub
 
 ErrHandler:
@@ -2652,18 +2749,19 @@ Private Sub lstSubItems_Click()
     
     If lstSubItems.ListIndex < 0 Then Exit Sub
 
-    ' If in SubSubItem Edit mode, switching sub-sub-items is allowed
+    ' If in SubSubItem Edit mode (drilled in), switching sub-sub-items
+    ' is allowed - mirrors the mEditingSubIdx auto-save-on-switch pattern
     If mEditingSubSubIdx >= 0 Then
 
         Dim newSubSubIdx As Long
         newSubSubIdx = lstSubItems.ListIndex
 
-        Dim parentIdxSS As Long
-        parentIdxSS = lstItems.ListIndex + 1
+        Dim parentIdx3 As Long
+        parentIdx3 = lstItems.ListIndex + 1
 
         ' Always save current text when switching (no prompt)
         If Trim(txtSubItem.Text) <> "" Then
-            SaveEditedSubSubItemTextInPlace parentIdxSS, mDrilledSubIdx
+            SaveEditedSubSubItemTextInPlace parentIdx3, mDrilledSubIdx
             mLoading = True
             RefreshSubSubItems
             mLoading = False
@@ -2672,21 +2770,21 @@ Private Sub lstSubItems_Click()
         ' Switch to newly selected sub-sub-item
         mEditingSubSubIdx = newSubSubIdx
 
-        ' Guard against out of bounds
-        Dim partsSS() As String
-        partsSS = Split(mSecItems(mCurrentSection)(parentIdxSS), TABLE_SEP)
-        If UBound(partsSS) >= 1 Then
-            Dim subsSS() As String
-            subsSS = Split(partsSS(1), LIST_SEP)
-            If mDrilledSubIdx <= UBound(subsSS) Then
-                Dim subPartsSS() As String
-                If InStr(subsSS(mDrilledSubIdx), SUBSUB_SEP) > 0 Then
-                    subPartsSS = Split(subsSS(mDrilledSubIdx), SUBSUB_SEP)
-                    If UBound(subPartsSS) >= 1 Then
-                        Dim subsubsSS() As String
-                        subsubsSS = Split(subPartsSS(1), SUBSUB_ITEM_SEP)
-                        If mEditingSubSubIdx > UBound(subsubsSS) Then mEditingSubSubIdx = UBound(subsubsSS)
-                        txtSubItem.Text = subsubsSS(mEditingSubSubIdx)
+        ' Guard against out of bounds, and load the new text
+        Dim parts3() As String
+        parts3 = Split(mSecItems(mCurrentSection)(parentIdx3), TABLE_SEP)
+        If UBound(parts3) >= 1 Then
+            Dim subs3() As String
+            subs3 = Split(parts3(1), LIST_SEP)
+            If mDrilledSubIdx <= UBound(subs3) Then
+                Dim subParts3() As String
+                If InStr(subs3(mDrilledSubIdx), SUBSUB_SEP) > 0 Then
+                    subParts3 = Split(subs3(mDrilledSubIdx), SUBSUB_SEP)
+                    If UBound(subParts3) >= 1 Then
+                        Dim subsubs3() As String
+                        subsubs3 = Split(subParts3(1), SUBSUB_ITEM_SEP)
+                        If mEditingSubSubIdx > UBound(subsubs3) Then mEditingSubSubIdx = UBound(subsubs3)
+                        txtSubItem.Text = subsubs3(mEditingSubSubIdx)
                     End If
                 End If
             End If

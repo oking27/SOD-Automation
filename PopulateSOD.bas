@@ -1,4 +1,4 @@
-Attribute VB_Name = "populateSOD"
+Attribute VB_Name = "PopulateSOD"
 Option Explicit
 
 '====================================================
@@ -408,7 +408,9 @@ Private Sub RenderRoles( _
     Dim role As String
     Dim txt As String
     Dim para As Object
+    Dim rng As Object
     Dim firstHelperCol As Long, lastHelperCol As Long
+    Dim level As Long
 
     WriteHeading wdDoc, Trim(tbl.ListColumns(colNum).name)
 
@@ -427,16 +429,34 @@ Private Sub RenderRoles( _
             para.Bold = True
         End If
 
-        ' Render all helper columns as indented lines
         For c = firstHelperCol To lastHelperCol
             If c <= tbl.ListColumns.count Then
                 txt = Trim(tbl.DataBodyRange(r, c).Value)
                 If txt <> "" Then
                     wdDoc.Content.InsertAfter txt & vbCr
-                    Set para = wdDoc.Paragraphs(wdDoc.Paragraphs.count - 1).Range
-                    para.Style = "SOD Body"
-                    para.ParagraphFormat.LeftIndent = ROLE_INDENT
-                    para.Characters(1).Bold = True
+                    Set rng = wdDoc.Paragraphs(wdDoc.Paragraphs.count - 1).Range
+                    rng.Style = "SOD Body"
+
+                    If c = firstHelperCol Then
+                        ' Bullet1 - unchanged: plain indented line, no
+                        ' bullet marker, bold first character.
+                        rng.ParagraphFormat.LeftIndent = ROLE_INDENT
+                        rng.Characters(1).Bold = True
+                    Else
+                        ' Bullet2 and beyond - bullet glyph sits flush
+                        ' with where the layer above's text starts;
+                        ' this level's own text is indented one step
+                        ' further right from there.
+                        level = c - firstHelperCol
+                        ApplyBulletLevel rng, level
+
+                        With rng.ListFormat.ListTemplate.ListLevels(level)
+                            .NumberPosition = ROLE_INDENT
+                            .TextPosition = ROLE_INDENT + 18
+                        End With
+                        
+                        rng.ParagraphFormat.LeftIndent = ROLE_INDENT + 18
+                    End If
                 End If
             End If
         Next c
@@ -454,6 +474,7 @@ Private Sub RenderProcessSteps( _
     Dim txt As String
     Dim rng As Object
     Dim firstHelperCol As Long, lastHelperCol As Long
+    Dim level As Long
 
     WriteHeading wdDoc, Trim(tbl.ListColumns(colNum).name)
 
@@ -474,7 +495,6 @@ Private Sub RenderProcessSteps( _
             rng.ListFormat.ApplyNumberDefault
         End If
 
-        ' Render all helper columns as indented lines (no bullet/number)
         For c = firstHelperCol To lastHelperCol
             If c <= tbl.ListColumns.count Then
                 txt = Trim(tbl.DataBodyRange(r, c).Value)
@@ -482,7 +502,26 @@ Private Sub RenderProcessSteps( _
                     wdDoc.Content.InsertAfter txt & vbCr
                     Set rng = wdDoc.Paragraphs(wdDoc.Paragraphs.count - 1).Range
                     rng.Style = "SOD Body"
-                    rng.ParagraphFormat.LeftIndent = PROCESS_INDENT
+
+                    If c = firstHelperCol Then
+                        ' Bullet1 - unchanged: plain indented line, no
+                        ' bullet marker.
+                        rng.ParagraphFormat.LeftIndent = PROCESS_INDENT
+                    Else
+                        ' Bullet2 and beyond - bullet glyph sits flush
+                        ' with where the layer above's text starts;
+                        ' this level's own text is indented one step
+                        ' further right from there.
+                        level = c - firstHelperCol
+                        ApplyBulletLevel rng, level
+
+                        With rng.ListFormat.ListTemplate.ListLevels(level)
+                            .NumberPosition = PROCESS_INDENT
+                            .TextPosition = PROCESS_INDENT + 18
+                        End With
+                        
+                        rng.ParagraphFormat.LeftIndent = PROCESS_INDENT + 18
+                    End If
                 End If
             End If
         Next c
@@ -571,6 +610,7 @@ Private Sub RenderAdditionalResources( _
     ' Add blank row if all data rows were empty (for manual entry)
     Dim hasContent As Boolean
     hasContent = False
+    
     Dim checkR As Long, checkC As Long
     For checkR = 2 To rowCount
         For checkC = 1 To colCount
@@ -1052,8 +1092,17 @@ Private Sub ApplyBulletLevel(ByVal rng As Object, ByVal level As Long)
         .ListLevelNumber = level
     End With
 
-    ' Set bullet color via the list level's font
-    rng.ListFormat.ListTemplate.ListLevels(level).Font.Color = GREG_YELLOW
+    ' The built-in gallery template uses a DIFFERENT glyph per level
+    ' (level 1 happens to be the square used for KPIs/Objectives; deeper
+    ' levels default to something else, e.g. a dash or circle). Force
+    ' every level to reuse level 1's exact glyph/font so KPIs,
+    ' Objectives, and any nested sub/sub-sub bullets all render as the
+    ' same yellow square regardless of depth.
+    With rng.ListFormat.ListTemplate.ListLevels(level)
+        .NumberFormat = rng.ListFormat.ListTemplate.ListLevels(1).NumberFormat
+        .Font.name = rng.ListFormat.ListTemplate.ListLevels(1).Font.name
+        .Font.Color = GREG_YELLOW
+    End With
 
 End Sub
 
@@ -1094,9 +1143,7 @@ Private Sub CreateNestedBulletSection(ByVal wdDoc As Object, _
 
     For r = 1 To lastRow
         For c = parentCol To bulletLastCol
-
             txt = Trim(tbl.DataBodyRange(r, c).Value)
-
             If txt <> "" Then
                 wdDoc.Content.InsertAfter txt & vbCr
                 level = c - parentCol + 1
@@ -1315,8 +1362,8 @@ Private Function GetDocumentTitle(ByVal tbl As ListObject, ByVal TitleCol As Lon
 End Function
 
 Public Sub OpenSODEditor()
+
     frmSOD.Show
     
 End Sub
-
 
