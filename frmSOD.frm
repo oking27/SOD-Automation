@@ -475,6 +475,10 @@ Private Function TruncateForDisplay(ByVal txt As String) As String
     
 End Function
 
+Private Sub lblHelp_Click()
+
+End Sub
+
 Private Sub lblSectionHelp_Click()
     On Error GoTo ErrHandler
     
@@ -3158,32 +3162,32 @@ End Sub
 
 Private Sub btnEditItem_Click()
     On Error GoTo ErrHandler
-
     If mEditingItemIdx > 0 Then
     
         ' CONFIRM
-        Dim newItem As String
-        newItem = Trim(txtItem.Text)
-        If newItem = "" Then
+        If Len(Trim(txtItem.Text)) = 0 Then
             MsgBox "Please type an item before confirming.", vbExclamation
             Exit Sub
         End If
 
-        ' Save any pending rename for current item
-        If newItem <> "" Then
-            SaveEditedItemTextInPlace
-        End If
-        
         PushUndo
-        
+
+        Dim resultCount As Long
+        resultCount = SaveEditedItemTextInPlace()
+
+        If resultCount = 0 Then
+            MsgBox "Please type an item before confirming.", vbExclamation
+            Exit Sub
+        End If
+
         Dim savedIdx As Long
         savedIdx = mEditingItemIdx
+
         ExitItemEditMode
-        UpdateItemControls
         RefreshItemsDisplay
         
         mLoading = True
-        lstItems.ListIndex = savedIdx - 1
+        lstItems.ListIndex = savedIdx - 1 + resultCount - 1
         mLoading = False
         
         If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then RefreshSubItems
@@ -3230,12 +3234,9 @@ Private Sub btnEditItem_Click()
         UpdateItemButtonsBasedOnFocus
         UpdateSubItemButtonsBasedOnFocus
     End If
-
     Exit Sub
-
 ErrHandler:
     HandleFormError "btnEditItem_Click"
-
 End Sub
 
 Private Sub ExitItemEditMode()
@@ -3390,33 +3391,64 @@ ErrHandler:
 
 End Sub
 
-Private Sub SaveEditedItemTextInPlace()
+Private Function SaveEditedItemTextInPlace() As Long
+    ' Returns 0 on failure (nothing to save), or the number of resulting
+    ' entries on success (1 = normal overwrite, 2+ = split occurred)
 
-    Dim newItem As String
-    newItem = Trim(txtItem.Text)
-    
-    If newItem = "" Then Exit Sub
+    Dim rawLines() As String
+    rawLines = Split(txtItem.Text, vbCrLf)
+
+    Dim cleanLines() As String
+    Dim cleanCount As Long
+    ReDim cleanLines(UBound(rawLines))
+    cleanCount = 0
+
+    Dim lineIdx As Long
+    For lineIdx = 0 To UBound(rawLines)
+        Dim t As String
+        t = Trim(rawLines(lineIdx))
+        If t <> "" Then
+            cleanLines(cleanCount) = t
+            cleanCount = cleanCount + 1
+        End If
+    Next lineIdx
+
+    If cleanCount = 0 Then
+        SaveEditedItemTextInPlace = 0
+        Exit Function
+    End If
 
     Dim newCol As New Collection
     Dim i As Long
     For i = 1 To mSecItems(mCurrentSection).count
         If i = mEditingItemIdx Then
+
+            Dim existingSuffix As String
+            existingSuffix = ""
             If mSecTypes(mCurrentSection) = TYPE_LIST And InStr(mSecItems(mCurrentSection)(i), TABLE_SEP) > 0 Then
                 Dim parts() As String
                 parts = Split(mSecItems(mCurrentSection)(i), TABLE_SEP)
-                parts(0) = newItem
-                newCol.Add Join(parts, TABLE_SEP)
-            Else
-                newCol.Add newItem
+                If UBound(parts) >= 1 Then existingSuffix = TABLE_SEP & parts(1)
             End If
+
+            Dim splitIdx As Long
+            For splitIdx = 0 To cleanCount - 1
+                If splitIdx = cleanCount - 1 Then
+                    newCol.Add cleanLines(splitIdx) & existingSuffix
+                Else
+                    newCol.Add cleanLines(splitIdx)
+                End If
+            Next splitIdx
+
         Else
             newCol.Add mSecItems(mCurrentSection)(i)
         End If
     Next i
-    
-    Set mSecItems(mCurrentSection) = newCol
 
-End Sub
+    Set mSecItems(mCurrentSection) = newCol
+    SaveEditedItemTextInPlace = cleanCount
+
+End Function
 
 '====================================================
 ' SUB-ITEM ADD / EDIT / REMOVE / REORDER
@@ -3665,7 +3697,6 @@ Private Sub btnEditSubItem_Click()
     End If
 
     If mEditingSubIdx >= 0 Then
-
         ' CONFIRM
         Dim parentIdx As Long
         parentIdx = lstItems.ListIndex
@@ -3674,49 +3705,28 @@ Private Sub btnEditSubItem_Click()
         Dim itemIdx As Long
         itemIdx = parentIdx + 1
 
-        Dim newSub As String
-        newSub = Trim(txtSubItem.Text)
-
-        If newSub = "" Then
+        If Len(Trim(txtSubItem.Text)) = 0 Then
             MsgBox "Please type a sub-item before confirming.", vbExclamation
             Exit Sub
         End If
 
         PushUndo
 
-        Dim parts() As String
-        parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
+        Dim resultCount As Long
+        resultCount = SaveEditedSubItemTextInPlace(itemIdx)
 
-        Dim subs() As String
-        If UBound(parts) >= 1 Then
-            subs = Split(parts(1), LIST_SEP)
-        Else
-            ReDim subs(0)
+        If resultCount = 0 Then
+            MsgBox "Please type a sub-item before confirming.", vbExclamation
+            Exit Sub
         End If
 
-        subs(mEditingSubIdx) = newSub
-
-        Dim newStr As String
-        newStr = parts(0) & TABLE_SEP & Join(subs, LIST_SEP)
-
-        Dim newCol As New Collection
-        Dim i As Long
-        For i = 1 To mSecItems(mCurrentSection).count
-            If i = itemIdx Then
-                newCol.Add newStr
-            Else
-                newCol.Add mSecItems(mCurrentSection)(i)
-            End If
-        Next i
-        
-        Set mSecItems(mCurrentSection) = newCol
-
         Dim savedSubIdx As Long
-        savedSubIdx = mEditingSubIdx
+        savedSubIdx = mEditingSubIdx + resultCount - 1
+
         ExitSubItemEditMode
         UpdateItemControls   ' restore item controls now that sub-item edit is over
+
         RefreshSubItems
-        
         lstSubItems.ListIndex = savedSubIdx
         UpdateItemButtonsBasedOnFocus
         UpdateSubItemButtonsBasedOnFocus
@@ -3758,7 +3768,6 @@ Private Sub btnEditSubItem_Click()
         mSubEditSnapshotItemIdx = lstItems.ListIndex
 
         mEditingSubIdx = subIdx
-        
         UpdateItemControls
         
         btnEditSubItem.Caption = "Confirm"
@@ -3851,28 +3860,84 @@ Private Sub CancelSubSubItemEditMode()
 
 End Sub
 
-Private Sub SaveEditedSubItemTextInPlace(ByVal itemIdx As Long)
-
-    Dim newSub As String
-    newSub = Trim(txtSubItem.Text)
-    If newSub = "" Then Exit Sub
-
+Private Function SaveEditedSubItemTextInPlace(ByVal itemIdx As Long) As Long
+    ' Returns 0 on failure (nothing to save), or the number of resulting
+    ' sub-items on success (1 = normal overwrite, 2+ = split occurred)
+    Dim rawLines() As String
+    rawLines = Split(txtSubItem.Text, vbCrLf)
+    Dim cleanLines() As String
+    Dim cleanCount As Long
+    ReDim cleanLines(UBound(rawLines))
+    cleanCount = 0
+    
+    Dim lineIdx As Long
+    For lineIdx = 0 To UBound(rawLines)
+        Dim t As String
+        t = Trim(rawLines(lineIdx))
+        If t <> "" Then
+            cleanLines(cleanCount) = t
+            cleanCount = cleanCount + 1
+        End If
+    Next lineIdx
+    
+    If cleanCount = 0 Then
+        SaveEditedSubItemTextInPlace = 0
+        Exit Function
+    End If
+    
     Dim parts() As String
     parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
-
     Dim subs() As String
+    
     If UBound(parts) >= 1 Then
         subs = Split(parts(1), LIST_SEP)
     Else
         ReDim subs(0)
+        subs(0) = ""
     End If
-
-    subs(mEditingSubIdx) = newSub
-
+    ' If the sub-item being edited had its own sub-sub-items attached,
+    ' they carry forward onto the LAST split line only - the earlier
+    ' lines from the split come in as plain new sub-items with no
+    ' bullets of their own.
+    Dim existingSuffix As String
+    existingSuffix = ""
+    
+    If InStr(subs(mEditingSubIdx), SUBSUB_SEP) > 0 Then
+        Dim subParts() As String
+        subParts = Split(subs(mEditingSubIdx), SUBSUB_SEP)
+        If UBound(subParts) >= 1 Then existingSuffix = SUBSUB_SEP & subParts(1)
+    End If
+    
+    ' Splice cleanLines into subs() at position mEditingSubIdx
+    Dim newSubs() As String
+    ReDim newSubs(UBound(subs) + cleanCount - 1)
+    
+    Dim srcIdx As Long, dstIdx As Long
+    dstIdx = 0
+    For srcIdx = 0 To mEditingSubIdx - 1
+        newSubs(dstIdx) = subs(srcIdx)
+        dstIdx = dstIdx + 1
+    Next srcIdx
+    
+    Dim splitIdx As Long
+    For splitIdx = 0 To cleanCount - 1
+        If splitIdx = cleanCount - 1 Then
+            newSubs(dstIdx) = cleanLines(splitIdx) & existingSuffix
+        Else
+            newSubs(dstIdx) = cleanLines(splitIdx)
+        End If
+        dstIdx = dstIdx + 1
+    Next splitIdx
+    
+    For srcIdx = mEditingSubIdx + 1 To UBound(subs)
+        newSubs(dstIdx) = subs(srcIdx)
+        dstIdx = dstIdx + 1
+    Next srcIdx
+    
     Dim newStr As String
-    newStr = parts(0) & TABLE_SEP & Join(subs, LIST_SEP)
-
+    newStr = parts(0) & TABLE_SEP & Join(newSubs, LIST_SEP)
     Dim newCol As New Collection
+    
     Dim i As Long
     For i = 1 To mSecItems(mCurrentSection).count
         If i = itemIdx Then
@@ -3883,14 +3948,34 @@ Private Sub SaveEditedSubItemTextInPlace(ByVal itemIdx As Long)
     Next i
     
     Set mSecItems(mCurrentSection) = newCol
+    SaveEditedSubItemTextInPlace = cleanCount
+    
+End Function
 
-End Sub
+Private Function SaveEditedSubSubItemTextInPlace(ByVal itemIdx As Long, ByVal subIdx As Long) As Boolean
 
-Private Sub SaveEditedSubSubItemTextInPlace(ByVal itemIdx As Long, ByVal subIdx As Long)
+    Dim rawLines() As String
+    rawLines = Split(txtSubItem.Text, vbCrLf)
 
-    Dim newSubSub As String
-    newSubSub = Trim(txtSubItem.Text)
-    If newSubSub = "" Then Exit Sub
+    Dim cleanLines() As String
+    Dim cleanCount As Long
+    ReDim cleanLines(UBound(rawLines))
+    cleanCount = 0
+
+    Dim lineIdx As Long
+    For lineIdx = 0 To UBound(rawLines)
+        Dim t As String
+        t = Trim(rawLines(lineIdx))
+        If t <> "" Then
+            cleanLines(cleanCount) = t
+            cleanCount = cleanCount + 1
+        End If
+    Next lineIdx
+
+    If cleanCount = 0 Then
+        SaveEditedSubSubItemTextInPlace = False
+        Exit Function
+    End If
 
     Dim parts() As String
     parts = Split(mSecItems(mCurrentSection)(itemIdx), TABLE_SEP)
@@ -3908,16 +3993,37 @@ Private Sub SaveEditedSubSubItemTextInPlace(ByVal itemIdx As Long, ByVal subIdx 
 
     Dim subsubs() As String
     If UBound(subParts) >= 1 Then
-        subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
+        subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)
     Else
         ReDim subsubs(0)
+        subsubs(0) = ""
     End If
 
-    subsubs(mEditingSubSubIdx) = newSubSub
+    ' Splice cleanLines into subsubs() at position mEditingSubSubIdx
+    Dim newSubsubs() As String
+    ReDim newSubsubs(UBound(subsubs) + cleanCount - 1)
+
+    Dim srcIdx As Long, dstIdx As Long
+    dstIdx = 0
+    For srcIdx = 0 To mEditingSubSubIdx - 1
+        newSubsubs(dstIdx) = subsubs(srcIdx)
+        dstIdx = dstIdx + 1
+    Next srcIdx
+
+    Dim splitIdx As Long
+    For splitIdx = 0 To cleanCount - 1
+        newSubsubs(dstIdx) = cleanLines(splitIdx)
+        dstIdx = dstIdx + 1
+    Next splitIdx
+
+    For srcIdx = mEditingSubSubIdx + 1 To UBound(subsubs)
+        newSubsubs(dstIdx) = subsubs(srcIdx)
+        dstIdx = dstIdx + 1
+    Next srcIdx
 
     ' Rebuild bottom-up: subsub array -> sub-item string -> subs array -> item string
     Dim newSubItemStr As String
-    newSubItemStr = subParts(0) & SUBSUB_SEP & Join(subsubs, SUBSUB_ITEM_SEP)   ' CHANGED
+    newSubItemStr = subParts(0) & SUBSUB_SEP & Join(newSubsubs, SUBSUB_ITEM_SEP)
 
     subs(subIdx) = newSubItemStr
 
@@ -3935,8 +4041,9 @@ Private Sub SaveEditedSubSubItemTextInPlace(ByVal itemIdx As Long, ByVal subIdx 
     Next i
 
     Set mSecItems(mCurrentSection) = newCol
+    SaveEditedSubSubItemTextInPlace = True
 
-End Sub
+End Function
 
 Private Sub AddSubSubItem()
     On Error GoTo ErrHandler
@@ -4067,7 +4174,7 @@ Private Sub RemoveSubSubItem()
     Dim subText As String
     subText = subParts(0)
 
-    Dim newSubSubs As String
+    Dim newSubsubs As String
     If UBound(subParts) >= 1 Then
         Dim subsubs() As String
         subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)
@@ -4075,17 +4182,17 @@ Private Sub RemoveSubSubItem()
         Dim j As Long
         For j = 0 To UBound(subsubs)
             If j <> subSubIdx Then
-                If newSubSubs = "" Then
-                    newSubSubs = subsubs(j)
+                If newSubsubs = "" Then
+                    newSubsubs = subsubs(j)
                 Else
-                    newSubSubs = newSubSubs & SUBSUB_ITEM_SEP & subsubs(j)
+                    newSubsubs = newSubsubs & SUBSUB_ITEM_SEP & subsubs(j)
                 End If
             End If
         Next j
     End If
 
-    If newSubSubs <> "" Then
-        subs(mDrilledSubIdx) = subText & SUBSUB_SEP & newSubSubs
+    If newSubsubs <> "" Then
+        subs(mDrilledSubIdx) = subText & SUBSUB_SEP & newSubsubs
     Else
         subs(mDrilledSubIdx) = subText   ' no children left - drop the marker entirely
     End If
@@ -4116,80 +4223,72 @@ End Sub
 
 Private Sub EditSubSubItem()
     On Error GoTo ErrHandler
-
+    
     Dim parentIdx As Long
     parentIdx = lstItems.ListIndex + 1
-
+    
     If mEditingSubSubIdx >= 0 Then
-
         ' CONFIRM
-        Dim newSubSub As String
-        newSubSub = Trim(txtSubItem.Text)
-
-        If newSubSub = "" Then
+        If Len(Trim(txtSubItem.Text)) = 0 Then
             MsgBox "Please type a bullet point before confirming.", vbExclamation
             Exit Sub
         End If
 
         PushUndo
-        SaveEditedSubSubItemTextInPlace parentIdx, mDrilledSubIdx
+
+        If Not SaveEditedSubSubItemTextInPlace(parentIdx, mDrilledSubIdx) Then
+            MsgBox "Please type a bullet point before confirming.", vbExclamation
+            Exit Sub
+        End If
 
         Dim savedIdx As Long
         savedIdx = mEditingSubSubIdx
-
         ExitSubSubItemEditMode
         RefreshSubSubItems
         mLoading = True
         lstSubItems.ListIndex = savedIdx
         mLoading = False
-
+        UpdateItemButtonsBasedOnFocus
+        UpdateSubItemButtonsBasedOnFocus
     Else
         Dim subSubIdx As Long
         subSubIdx = lstSubItems.ListIndex
-
         If subSubIdx < 0 Then
             MsgBox "Select a bullet point to edit.", vbExclamation
             Exit Sub
         End If
-
         Dim parts() As String
         parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
         Dim subs() As String
         subs = Split(parts(1), LIST_SEP)
-
         Dim subParts() As String
         If InStr(subs(mDrilledSubIdx), SUBSUB_SEP) = 0 Then Exit Sub
         subParts = Split(subs(mDrilledSubIdx), SUBSUB_SEP)
-
+        
         Dim subsubs() As String
         subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
-
         If subSubIdx > UBound(subsubs) Then Exit Sub
-
+        
         txtSubItem.Text = subsubs(subSubIdx)
         txtSubItem.SetFocus
-
+        
         Set mSubSubEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
         mSubSubEditSnapshotSec = mCurrentSection
         mSubSubEditSnapshotSubIdx = subSubIdx   ' FIXED - was mDrilledSubIdx
-
         mEditingSubSubIdx = subSubIdx
-
         btnEditSubItem.Caption = "Confirm"
         btnAddSubItem.Caption = "Move Up"
         btnRemoveSubItem.Caption = "Move Down"
         btnCancel.Caption = "Cancel"
-
         lstSubItems.SpecialEffect = 2
-
         UpdateSubSubItemButtonsBasedOnFocus
     End If
-
+    
     Exit Sub
-
+    
 ErrHandler:
     HandleFormError "EditSubSubItem"
-
+    
 End Sub
 
 Private Sub ExitSubSubItemEditMode()
