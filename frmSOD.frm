@@ -2058,6 +2058,22 @@ Private Sub ShowSection(ByVal idx As Long)
     mEditingSectionIdx = 0
     mAddingSection = False
 
+    ' Sub-sub-item drill/edit state also needs a clean reset on every
+    ' section switch. By this point, any unconfirmed sub-sub text has
+    ' already been resolved by the caller's HasUnconfirmedContent /
+    ' ConfirmPendingChanges guard (Yes = committed, No = user chose to
+    ' discard, Cancel = we never reach ShowSection at all) - so this is
+    ' a silent cleanup, not a second prompt.
+    If mEditingSubSubIdx >= 0 Then
+        CancelSubSubItemEditMode   ' reverts to snapshot, clears mEditingSubSubIdx and txtSubItem
+    End If
+    mDrilledSubIdx = -1
+    mDrilledSubText = ""
+    txtSubItem.Text = ""
+    lstItems.Enabled = True
+    txtItem.Enabled = True
+    txtItem.BackColor = &H80000005
+
     btnAddItem.Caption = "+ Add"
     btnRemoveItem.Caption = "– Remove"
     btnEditItem.Caption = "Edit"
@@ -2147,6 +2163,8 @@ Private Sub HideAllControls()
     btnRemoveSubItem.Visible = False
     btnEditSubItem.Visible = False
     txtSubItem.Visible = False
+    chkSubSubItems.Visible = False
+    btnDrillIntoSub.Visible = False
 
     ' Generic Table
     lblColCount.Visible = False
@@ -2302,8 +2320,6 @@ Private Sub ShowListSection(ByVal idx As Long)
     ' Drill-toggle visibility - only ever shown alongside sub-items, and its Enabled state (gated on chkSubSubItems AND a selection) is handled inside UpdateSubItemButtonsBasedOnFocus, not here
     ' Visible only when sub-sub-items are actually enabled for this section
     btnDrillIntoSub.Visible = showSubs And mSecHasSubSubItems(idx)
-    If mDrilledSubIdx >= 0 Then DrillOutOfSub   ' defensive reset on section switch
-
     UpdateItemControls
     UpdateItemButtonsBasedOnFocus
     UpdateSubItemButtonsBasedOnFocus
@@ -6508,23 +6524,9 @@ Private Sub btnCancel_Click()
         RefreshItemsDisplay
         Exit Sub
     End If
-    
+
     If mEditingSubSubIdx >= 0 Then
         CancelSubSubItemEditMode
-        Exit Sub
-    End If
-    
-    If mEditingSubSubIdx >= 0 Then
-        CancelSubSubItemEditMode
-        Exit Sub
-    End If
-    
-    ' Inside btnCancel_Click:
-    If mEditingSubSubIdx >= 0 Then
-        Call btnEditSubItem_Click
-        If mEditingSubSubIdx = -1 Then
-            ' confirmed successfully, nothing further needed here
-        End If
         Exit Sub
     End If
 
