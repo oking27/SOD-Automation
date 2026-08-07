@@ -236,10 +236,24 @@ End Sub
 Private Sub DrillIntoSub(ByVal subIdx As Long)
     On Error GoTo ErrHandler
 
-    Debug.Print "DrillIntoSub called. subIdx=" & subIdx & " lstItems.ListIndex before=" & lstItems.ListIndex
-
     mDrilledSubIdx = subIdx
-    mDrilledSubText = lstSubItems.List(subIdx)
+
+    ' Pull from the raw stored data rather than the listbox's display
+    ' text - RefreshSubItems prefixes a "•  " marker onto any sub-item
+    ' that already has bullets attached, and using the display string
+    ' here would leak that marker into this label too.
+    Dim parentIdx As Long
+    parentIdx = lstItems.ListIndex + 1
+    Dim parts() As String
+    parts = Split(mSecItems(mCurrentSection)(parentIdx), TABLE_SEP)
+    Dim subs() As String
+    subs = Split(parts(1), LIST_SEP)
+
+    If InStr(subs(subIdx), SUBSUB_SEP) > 0 Then
+        mDrilledSubText = Split(subs(subIdx), SUBSUB_SEP)(0)
+    Else
+        mDrilledSubText = subs(subIdx)
+    End If
 
     lblSubItems.Caption = "Bullets under: " & TruncateForDisplay(mDrilledSubText)
     btnDrillIntoSub.Caption = "• Bullets"
@@ -254,8 +268,6 @@ Private Sub DrillIntoSub(ByVal subIdx As Long)
     txtSubItem.Text = ""
     RefreshSubSubItems
     UpdateSubSubItemButtonsBasedOnFocus
-
-    Debug.Print "DrillIntoSub finished. lstItems.ListIndex after=" & lstItems.ListIndex
 
     Exit Sub
 
@@ -286,7 +298,7 @@ Private Sub DrillOutOfSub()
 
     mDrilledSubIdx = -1
     mDrilledSubText = ""
-    lblSubItems.Caption = "Sub-items:"
+    UpdateSubItemsLabel
     btnDrillIntoSub.Caption = "• Bullets"
 
     lstItems.Enabled = True
@@ -1224,21 +1236,38 @@ Private Sub UpdateItemButtonsBasedOnFocus()
     
     ' EDIT MODE: Position-based enabling
     If mEditingItemIdx > 0 Then
-        btnAddItem.Enabled = (mEditingItemIdx > 1)
+        Dim isMultiLine As Boolean
+        isMultiLine = (InStr(txtItem.Text, vbCrLf) > 0)
+
+        btnEditItem.Caption = IIf(isMultiLine, "Split", "Confirm")
+        btnEditItem.ControlTipText = IIf(isMultiLine, _
+            "Each line will become its own item at this position", _
+            "Save changes to this item")
+        btnAddItem.Enabled = (mEditingItemIdx > 1) And Not isMultiLine
+        btnAddItem.ControlTipText = "Move this item up one position"
         btnEditItem.Enabled = True
-        btnRemoveItem.Enabled = (mEditingItemIdx < mSecItems(mCurrentSection).count)
+        btnRemoveItem.Enabled = (mEditingItemIdx < mSecItems(mCurrentSection).count) And Not isMultiLine
+        btnRemoveItem.ControlTipText = "Move this item down one position"
         Exit Sub
     End If
     
     ' NORMAL MODE: Check if txtItem has content (not just focus)
     ' If it has content, "+ Add" is enabled
     btnAddItem.Enabled = (Len(Trim(txtItem.Text)) > 0)
+    Dim itemIsMultiLine As Boolean
+    itemIsMultiLine = (InStr(txtItem.Text, vbCrLf) > 0)
+    btnAddItem.Caption = IIf(itemIsMultiLine, "+ Add All", "+ Add")
+    btnAddItem.ControlTipText = IIf(itemIsMultiLine, _
+        "Add each line as a separate item", _
+        "Add this text as a new item")
     
     ' "Edit" and "– Remove" enabled only if lstItems has selection
     Dim hasSelection As Boolean
     hasSelection = (lstItems.ListIndex >= 0)
     btnEditItem.Enabled = hasSelection
+    btnEditItem.ControlTipText = "Edit the selected item"
     btnRemoveItem.Enabled = hasSelection
+    btnRemoveItem.ControlTipText = "Remove the selected item"
     Exit Sub
 
 ErrHandler:
@@ -1254,6 +1283,16 @@ Private Sub UpdateSubItemButtonsBasedOnFocus()
     ' that, "does a sub-item have children" is meaningless, even if a
     ' sub-item is still visibly sitting in the listbox below (stale).
     chkSubSubItems.Enabled = mSecHasSubItems(mCurrentSection) And (lstItems.ListCount > 0) And (lstSubItems.ListCount > 0)
+
+    ' BLOCK: If an Item is being edited, disable all sub-item actions -
+    ' mirrors the "If mEditingSubIdx >= 0" block in UpdateItemButtonsBasedOnFocus
+    If mEditingItemIdx > 0 Then
+        btnAddSubItem.Enabled = False
+        btnEditSubItem.Enabled = False
+        btnRemoveSubItem.Enabled = False
+        btnDrillIntoSub.Enabled = False
+        Exit Sub
+    End If
 
     ' Drilled-in mode takes priority and short-circuits into
     ' the sub-sub-item logic, which mirrors the block below almost exactly
@@ -1276,21 +1315,38 @@ Private Sub UpdateSubItemButtonsBasedOnFocus()
             Exit Sub
         End If
 
+        Dim isMultiLine As Boolean
+        isMultiLine = (InStr(txtSubItem.Text, vbCrLf) > 0)
+
         Dim subs() As String
         subs = Split(parts(1), LIST_SEP)
-        btnAddSubItem.Enabled = (mEditingSubIdx > 0)
+        btnEditSubItem.Caption = IIf(isMultiLine, "Split", "Confirm")
+        btnEditSubItem.ControlTipText = IIf(isMultiLine, _
+            "Each line will become its own sub-item at this position", _
+            "Save changes to this sub-item")
+        btnAddSubItem.Enabled = (mEditingSubIdx > 0) And Not isMultiLine
+        btnAddSubItem.ControlTipText = "Move this sub-item up one position"
         btnEditSubItem.Enabled = True
-        btnRemoveSubItem.Enabled = (mEditingSubIdx < UBound(subs))
+        btnRemoveSubItem.Enabled = (mEditingSubIdx < UBound(subs)) And Not isMultiLine
+        btnRemoveSubItem.ControlTipText = "Move this sub-item down one position"
         Exit Sub
     End If
 
     ' NORMAL MODE: Check if txtSubItem has content
     btnAddSubItem.Enabled = (Len(Trim(txtSubItem.Text)) > 0)
+    Dim subIsMultiLine As Boolean
+    subIsMultiLine = (InStr(txtSubItem.Text, vbCrLf) > 0)
+    btnAddSubItem.Caption = IIf(subIsMultiLine, "+ Add All", "+ Add")
+    btnAddSubItem.ControlTipText = IIf(subIsMultiLine, _
+        "Add each line as a separate sub-item", _
+        "Add this text as a new sub-item")
     
     Dim hasSelection As Boolean
     hasSelection = (lstSubItems.ListIndex >= 0)
     btnEditSubItem.Enabled = hasSelection
+    btnEditSubItem.ControlTipText = "Edit the selected sub-item"
     btnRemoveSubItem.Enabled = hasSelection
+    btnRemoveSubItem.ControlTipText = "Remove the selected sub-item"
     btnDrillIntoSub.Enabled = hasSelection And chkSubSubItems.Value
     Exit Sub
 
@@ -1328,19 +1384,36 @@ Private Sub UpdateSubSubItemButtonsBasedOnFocus()
             Exit Sub
         End If
 
+        Dim isMultiLine As Boolean
+        isMultiLine = (InStr(txtSubItem.Text, vbCrLf) > 0)
+
         Dim subsubs() As String
         subsubs = Split(subParts(1), SUBSUB_ITEM_SEP)   ' CHANGED
-        btnAddSubItem.Enabled = (mEditingSubSubIdx > 0)
+        btnEditSubItem.Caption = IIf(isMultiLine, "Split", "Confirm")
+        btnEditSubItem.ControlTipText = IIf(isMultiLine, _
+            "Each line will become its own bullet point at this position", _
+            "Save changes to this bullet point")
+        btnAddSubItem.Enabled = (mEditingSubSubIdx > 0) And Not isMultiLine
+        btnAddSubItem.ControlTipText = "Move this bullet point up one position"
         btnEditSubItem.Enabled = True
-        btnRemoveSubItem.Enabled = (mEditingSubSubIdx < UBound(subsubs))
+        btnRemoveSubItem.Enabled = (mEditingSubSubIdx < UBound(subsubs)) And Not isMultiLine
+        btnRemoveSubItem.ControlTipText = "Move this bullet point down one position"
         Exit Sub
     End If
 
     btnAddSubItem.Enabled = (Len(Trim(txtSubItem.Text)) > 0)
+    Dim subSubIsMultiLine As Boolean
+    subSubIsMultiLine = (InStr(txtSubItem.Text, vbCrLf) > 0)
+    btnAddSubItem.Caption = IIf(subSubIsMultiLine, "+ Add All", "+ Add")
+    btnAddSubItem.ControlTipText = IIf(subSubIsMultiLine, _
+        "Add each line as a separate bullet point", _
+        "Add this text as a new bullet point")
     Dim hasSelection As Boolean
     hasSelection = (lstSubItems.ListIndex >= 0)
     btnEditSubItem.Enabled = hasSelection
+    btnEditSubItem.ControlTipText = "Edit the selected bullet point"
     btnRemoveSubItem.Enabled = hasSelection
+    btnRemoveSubItem.ControlTipText = "Remove the selected bullet point"
     Exit Sub
 
 ErrHandler:
@@ -2922,10 +2995,13 @@ Private Sub btnAddItem_Click()
     DebugLog "btnAddItem_Click: mode=" & IIf(mEditingItemIdx > 0, "EDIT", "ADD")
     If mEditingItemIdx > 0 Then
         ' EDIT MODE: Move Up
+        If InStr(txtItem.Text, vbCrLf) > 0 Then
+            MsgBox "Please confirm or remove the extra lines before reordering.", vbExclamation
+            Exit Sub
+        End If
         ReorderItem mEditingItemIdx, -1, mSecItems(mCurrentSection).count
         RefreshItemsAfterReorder
     Else
-        ' If there's unsaved text in the Sub-item field, ask how to proceed
         ' If there's unsaved text in the Sub-item field, ask how to proceed
         If mSecHasSubItems(mCurrentSection) And Len(Trim(txtSubItem.Text)) > 0 Then
 
@@ -3084,6 +3160,10 @@ Private Sub btnRemoveItem_Click()
     
     If mEditingItemIdx > 0 Then
         ' EDIT MODE: Move Down
+        If InStr(txtItem.Text, vbCrLf) > 0 Then
+            MsgBox "Please confirm or remove the extra lines before reordering.", vbExclamation
+            Exit Sub
+        End If
         ReorderItem mEditingItemIdx, 1, mSecItems(mCurrentSection).count
         RefreshItemsAfterReorder
     Else
@@ -3474,6 +3554,10 @@ Private Sub btnAddSubItem_Click()
     
     If mEditingSubIdx >= 0 Then
         ' EDIT MODE: Move Up
+        If InStr(txtSubItem.Text, vbCrLf) > 0 Then
+            MsgBox "Please confirm or remove the extra lines before reordering.", vbExclamation
+            Exit Sub
+        End If
         ReorderSubItem mEditingSubIdx, -1, itemIdx
         RefreshSubItemsAfterReorder
     Else
@@ -3610,7 +3694,11 @@ Private Sub btnRemoveSubItem_Click()
     itemIdx = parentIdx + 1
 
     If mEditingSubIdx >= 0 Then
-        ' EDIT MODE: Move Up
+        ' EDIT MODE: Move Down
+        If InStr(txtSubItem.Text, vbCrLf) > 0 Then
+            MsgBox "Please confirm or remove the extra lines before reordering.", vbExclamation
+            Exit Sub
+        End If
         ReorderSubItem mEditingSubIdx, 1, itemIdx
         RefreshSubItemsAfterReorder
     Else
@@ -3760,7 +3848,12 @@ Private Sub btnEditSubItem_Click()
 
         If subIdx > UBound(subs2) Then Exit Sub
 
-        txtSubItem.Text = subs2(subIdx)
+        If InStr(subs2(subIdx), SUBSUB_SEP) > 0 Then
+            txtSubItem.Text = Split(subs2(subIdx), SUBSUB_SEP)(0)
+        Else
+            txtSubItem.Text = subs2(subIdx)
+        End If
+        
         txtSubItem.SetFocus
 
         Set mSubEditSnapshot = CloneCollection(mSecItems(mCurrentSection))
@@ -4053,6 +4146,10 @@ Private Sub AddSubSubItem()
 
     ' Move Up branch:
     If mEditingSubSubIdx >= 0 Then
+        If InStr(txtSubItem.Text, vbCrLf) > 0 Then
+            MsgBox "Please confirm or remove the extra lines before reordering.", vbExclamation
+            Exit Sub
+        End If
         ReorderSubSubItem mEditingSubSubIdx, -1, parentIdx, mDrilledSubIdx
         RefreshSubSubItemsAfterReorder
         Exit Sub
@@ -4148,6 +4245,10 @@ Private Sub RemoveSubSubItem()
 
     ' Move Down branch:
     If mEditingSubSubIdx >= 0 Then
+        If InStr(txtSubItem.Text, vbCrLf) > 0 Then
+            MsgBox "Please confirm or remove the extra lines before reordering.", vbExclamation
+            Exit Sub
+        End If
         ReorderSubSubItem mEditingSubSubIdx, 1, parentIdx, mDrilledSubIdx
         RefreshSubSubItemsAfterReorder
         Exit Sub
