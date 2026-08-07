@@ -99,6 +99,17 @@ Private mUndoItems As Collection
 Private mUndoData As String
 Private mUndoCols As String
 
+' Redo - the mirror image of Undo. Clicking Undo populates this with
+' whatever was just replaced, so the same click reverses itself. Any
+' Change (via PushUndo) invalidates it, same as real undo/redo.
+Private mRedoAvailable As Boolean
+Private mRedoSecIdx As Long
+Private mRedoItems As Collection
+Private mRedoData As String
+Private mRedoCols As String
+Private mRedoHasSubItems As Boolean
+Private mRedoHasSubSubItems As Boolean
+
 ' Pre-edit snapshots, used so Cancel can fully restore state
 ' (separate from Undo, which only covers the most recent committed change)
 Private mEditSnapshot As Collection
@@ -397,6 +408,8 @@ Private Sub chkSubSubItems_Click()
             End If
         End If
 
+        PushUndo
+
         ' Strip everything after SUBSUB_SEP from every sub-item, in every item
         Dim newCol As New Collection
         Dim j As Long
@@ -626,6 +639,7 @@ Private Sub UserForm_Initialize()
     mAddingSection = False
     mJustSaved = False
     mUndoAvailable = False
+    mRedoAvailable = False
 
     Set mEditSnapshot = Nothing
     Set mSubEditSnapshot = Nothing
@@ -999,6 +1013,11 @@ Private Sub PushUndo()
     mUndoHasSubItems = mSecHasSubItems(mCurrentSection)
     mUndoHasSubSubItems = mSecHasSubSubItems(mCurrentSection)
     mUndoAvailable = True
+
+    ' A fresh change invalidates any pending redo - redoing something
+    ' from before this new change no longer makes sense
+    mRedoAvailable = False
+
     RefreshUndoButton
     Exit Sub
 
@@ -1009,8 +1028,21 @@ End Sub
 
 Private Sub RefreshUndoButton()
     On Error Resume Next
-    
-    btnUndo.Enabled = mUndoAvailable
+
+    If mRedoAvailable Then
+        btnUndo.Enabled = True
+        btnUndo.Caption = "Redo"
+        btnUndo.ControlTipText = "Redo the last undone change in " & mSecNames(mRedoSecIdx)
+    ElseIf mUndoAvailable Then
+        btnUndo.Enabled = True
+        btnUndo.Caption = "Undo"
+        btnUndo.ControlTipText = "Undo the last change in " & mSecNames(mUndoSecIdx)
+    Else
+        btnUndo.Enabled = False
+        btnUndo.Caption = "Undo"
+        btnUndo.ControlTipText = "Nothing to undo"
+    End If
+
     On Error GoTo 0
 
 End Sub
@@ -1030,6 +1062,36 @@ End Function
 Private Sub btnUndo_Click()
     On Error GoTo ErrHandler
 
+    If mRedoAvailable Then
+        If mRedoSecIdx <> mCurrentSection Then
+            MsgBox "The undone change was in '" & mSecNames(mRedoSecIdx) & _
+                   "'. Switch to that section to redo it.", vbExclamation
+            Exit Sub
+        End If
+
+        ' REDO: the currently-live state becomes the new Undo snapshot
+        ' (so Undo can reverse this Redo too), then restore whatever
+        ' was saved off when Undo was last clicked
+        mUndoSecIdx = mCurrentSection
+        Set mUndoItems = CloneCollection(mSecItems(mCurrentSection))
+        mUndoData = mSecData(mCurrentSection)
+        mUndoCols = mSecCols(mCurrentSection)
+        mUndoHasSubItems = mSecHasSubItems(mCurrentSection)
+        mUndoHasSubSubItems = mSecHasSubSubItems(mCurrentSection)
+        mUndoAvailable = True
+
+        Set mSecItems(mCurrentSection) = CloneCollection(mRedoItems)
+        mSecData(mCurrentSection) = mRedoData
+        mSecCols(mCurrentSection) = mRedoCols
+        mSecHasSubItems(mCurrentSection) = mRedoHasSubItems
+        mSecHasSubSubItems(mCurrentSection) = mRedoHasSubSubItems
+        mRedoAvailable = False
+
+        RefreshUndoButton
+        ShowSection mCurrentSection
+        Exit Sub
+    End If
+
     If Not mUndoAvailable Then
         MsgBox "Nothing to undo.", vbInformation
         Exit Sub
@@ -1041,12 +1103,24 @@ Private Sub btnUndo_Click()
         Exit Sub
     End If
 
+    ' UNDO: the currently-live state becomes the new Redo snapshot
+    ' (so this same click can be reversed), then restore whatever
+    ' was saved off right before the change being undone
+    mRedoSecIdx = mCurrentSection
+    Set mRedoItems = CloneCollection(mSecItems(mCurrentSection))
+    mRedoData = mSecData(mCurrentSection)
+    mRedoCols = mSecCols(mCurrentSection)
+    mRedoHasSubItems = mSecHasSubItems(mCurrentSection)
+    mRedoHasSubSubItems = mSecHasSubSubItems(mCurrentSection)
+    mRedoAvailable = True
+
     Set mSecItems(mCurrentSection) = CloneCollection(mUndoItems)
     mSecData(mCurrentSection) = mUndoData
     mSecCols(mCurrentSection) = mUndoCols
     mSecHasSubItems(mCurrentSection) = mUndoHasSubItems
     mSecHasSubSubItems(mCurrentSection) = mUndoHasSubSubItems
     mUndoAvailable = False
+
     RefreshUndoButton
     ShowSection mCurrentSection
     Exit Sub
@@ -2500,6 +2574,8 @@ Private Sub chkSubItems_Click()
             End If
         End If
 
+        PushUndo
+
         ' Strip everything after the pipe from each item
         Dim newCol As New Collection
         Dim j As Long
@@ -3242,6 +3318,7 @@ End Sub
 
 Private Sub btnEditItem_Click()
     On Error GoTo ErrHandler
+    
     If mEditingItemIdx > 0 Then
     
         ' CONFIRM
@@ -3270,6 +3347,7 @@ Private Sub btnEditItem_Click()
         lstItems.ListIndex = savedIdx - 1 + resultCount - 1
         mLoading = False
         
+        UpdateSubItemsLabel
         If mSecTypes(mCurrentSection) = TYPE_LIST And mSecHasSubItems(mCurrentSection) Then RefreshSubItems
         UpdateItemButtonsBasedOnFocus
         UpdateSubItemButtonsBasedOnFocus
@@ -3314,9 +3392,12 @@ Private Sub btnEditItem_Click()
         UpdateItemButtonsBasedOnFocus
         UpdateSubItemButtonsBasedOnFocus
     End If
+    
     Exit Sub
+    
 ErrHandler:
     HandleFormError "btnEditItem_Click"
+    
 End Sub
 
 Private Sub ExitItemEditMode()
