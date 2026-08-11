@@ -2,9 +2,9 @@ VERSION 5.00
 Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} frmSOD 
    Caption         =   "SOD Editor"
    ClientHeight    =   9156.001
-   ClientLeft      =   987
-   ClientTop       =   3766
-   ClientWidth     =   11060
+   ClientLeft      =   990
+   ClientTop       =   3768
+   ClientWidth     =   11058
    OleObjectBlob   =   "frmSOD.frx":0000
    StartUpPosition =   2  'CenterScreen
 End
@@ -6294,7 +6294,6 @@ Private Sub LoadTableColumns(ByVal tbl As ListObject, _
             mSecItems(secIdx).Add rowStr
         
         ElseIf Not isBlank Then
-        
             mSecItems(secIdx).Add rowStr
         End If
     Next r
@@ -6346,6 +6345,7 @@ Private Function IsHeaderLookalikeRow(ByVal secIdx As Long, ByVal rowStr As Stri
             IsHeaderLookalikeRow = True
         End If
     ElseIf mSecTypes(secIdx) = TYPE_DICTIONARY Then
+    
         If UBound(parts) < 1 Then Exit Function
         
         If Trim(parts(0)) = SEC_DICT_COL1 And _
@@ -6537,26 +6537,36 @@ End Sub
 Private Function MaxSubDepth(ByVal secIdx As Long) As Long
     On Error GoTo ErrHandler
 
+    Dim foundAnySubs As Boolean
+    foundAnySubs = False
+
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
         Dim parts() As String
         parts = Split(mSecItems(secIdx)(i), TABLE_SEP)
 
-        ' Careful: VBA's "And" does NOT short-circuit, so we can't
-        ' write "If UBound(parts) > 0 And parts(1) <> ''" on one line -
-        ' that would still try to read parts(1) even when UBound(parts)
-        ' is 0 (no pipe at all), which throws a Subscript out of range
-        ' error. Nesting the Ifs avoids that.
         If UBound(parts) > 0 Then
             If parts(1) <> "" Then
-                MaxSubDepth = 1
-                
-                Exit Function
+                foundAnySubs = True
+
+                ' Check every sub-item under this item for an attached
+                ' third level - if any exist, this section needs a
+                ' Bullet2 helper column and we can stop looking.
+                Dim subs() As String
+                subs = Split(parts(1), LIST_SEP)
+
+                Dim j As Long
+                For j = 0 To UBound(subs)
+                    If InStr(subs(j), SUBSUB_SEP) > 0 Then
+                        MaxSubDepth = 2
+                        Exit Function
+                    End If
+                Next j
             End If
         End If
     Next i
 
-    MaxSubDepth = 0
+    MaxSubDepth = IIf(foundAnySubs, 1, 0)
     Exit Function
 
 ErrHandler:
@@ -6634,13 +6644,13 @@ Private Sub WriteNestedToSheet(ByVal ws As Worksheet, _
     On Error GoTo ErrHandler
 
     ws.Cells(1, startCol + 1).Value = "Bullet1"
+    If depth >= 2 Then ws.Cells(1, startCol + 2).Value = "Bullet2"
 
     Dim r As Long
     r = 2
 
     Dim i As Long
     For i = 1 To mSecItems(secIdx).count
-
         Dim parts() As String
         parts = Split(mSecItems(secIdx)(i), TABLE_SEP)
 
@@ -6654,16 +6664,50 @@ Private Sub WriteNestedToSheet(ByVal ws As Worksheet, _
         End If
 
         If hasSubs Then
-
             Dim subs() As String
             subs = Split(parts(1), LIST_SEP)
 
             Dim j As Long
             For j = 0 To UBound(subs)
                 If subs(j) <> "" Then
+
+                    ' A sub-item may carry its own sub-sub-items, attached
+                    ' via SUBSUB_SEP. Split those off before writing - the
+                    ' clean sub-item text goes in Bullet1, and its children
+                    ' (if any) go in Bullet2, one per row.
+                    Dim subText As String
+                    Dim subSubsRaw As String
+                    subText = subs(j)
+                    subSubsRaw = ""
+
+                    If InStr(subs(j), SUBSUB_SEP) > 0 Then
+                        Dim subParts() As String
+                        subParts = Split(subs(j), SUBSUB_SEP)
+                        subText = subParts(0)
+                        If UBound(subParts) >= 1 Then subSubsRaw = subParts(1)
+                    End If
+
                     ' Each sub-item after the first pushes to a NEW row,
                     ' with the main column left blank on that row.
-                    ws.Cells(r, startCol + 1).Value = subs(j)
+                    ws.Cells(r, startCol + 1).Value = subText
+
+                    If subSubsRaw <> "" And depth >= 2 Then
+                        Dim subsubs() As String
+                        subsubs = Split(subSubsRaw, SUBSUB_ITEM_SEP)
+
+                        Dim k As Long
+                        For k = 0 To UBound(subsubs)
+                            If subsubs(k) <> "" Then
+                                ' The FIRST sub-sub-item shares this same
+                                ' row as its parent sub-item; every one
+                                ' after that gets its own continuation
+                                ' row, with main and Bullet1 left blank.
+                                ws.Cells(r, startCol + 2).Value = subsubs(k)
+                                If k < UBound(subsubs) Then r = r + 1
+                            End If
+                        Next k
+                    End If
+
                     r = r + 1
                 End If
             Next j
